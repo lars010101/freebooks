@@ -22,7 +22,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { startTestServer, api, sql, seedCompany } = require('../api/test-utils/helpers.js');
+const { startTestServer, api, sql, seedCompany, testDates } = require('../api/test-utils/helpers.js');
+const TD = testDates();   // relative dates (previous month), same as the API contract suite
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -95,11 +96,11 @@ await sql(baseUrl, srv.adminToken,
    VALUES ('agent@ct', 'CT', 'agent', now(), 'test')`);
 ok('seeded owner@ct + agent@ct via admin SQL', true);
 
-// seedCompany already opened period 2026-07 (period.upsert) — reuse for the
+// seedCompany already opened the test period (TD.periodId, previous month) — reuse for the
 // proposal batch date. Confirm it is present and unlocked.
 const periods = await sql(baseUrl, srv.adminToken,
-  `SELECT period_name, locked FROM periods WHERE company_id='CT' AND period_name='2026-07'`);
-ok('open period 2026-07 seeded', periods.length === 1 && !periods[0].locked, JSON.stringify(periods));
+  `SELECT period_name, locked FROM periods WHERE company_id='CT' AND period_name='${TD.periodId}'`);
+ok(`open period ${TD.periodId} seeded`, periods.length === 1 && !periods[0].locked, JSON.stringify(periods));
 
 // ── spawn the MCP server ──────────────────────────────────────────────────────
 const REQUEST_ID = randomUUID();
@@ -173,7 +174,7 @@ ok('freebooks_read journal.post → isError (client-side refusal)', !!(rjp.resul
 }
 
 // ── tools/call journal_propose — a valid 2-line balanced batch (open period) ─
-const PROPOSAL_DATE = '2026-07-20';
+const PROPOSAL_DATE = TD.day20;
 const propose = await mcp.call('tools/call', {
   name: 'journal_propose',
   arguments: {

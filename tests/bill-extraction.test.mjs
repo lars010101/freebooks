@@ -706,7 +706,7 @@ test('16. buildBillExtractionPrompt includes partner list, COA, and VAT codes', 
 
 // ── 17. Gross→net conversion: line amount with VAT code is converted ──────
 
-test('17. _validateExtraction converts gross line amount to net when VAT code present', () => {
+test('17. _validateExtraction emits net_amount (gross/(1+rate)) and preserves gross when VAT code present', () => {
   const context = {
     partners: [],
     expenseAccounts: [],
@@ -722,8 +722,12 @@ test('17. _validateExtraction converts gross line amount to net when VAT code pr
   };
   const result = _validateExtraction(parsed, context, {});
   assert.equal(result.ok, true);
-  // 1000 gross @ 25% → net = round(1000 / 1.25, 2) = 800
-  assert.equal(result.data.lines[0].amount, 800);
+  // 1000 gross @ 25% → net_amount = round(1000 / 1.25, 2) = 800. The printed
+  // gross is preserved (spec §3.3, #268): `amount`/`gross_amount` stay 1000;
+  // processBill passes net_amount to bill.create.
+  assert.equal(result.data.lines[0].net_amount, 800);
+  assert.equal(result.data.lines[0].gross_amount, 1000);
+  assert.equal(result.data.lines[0].amount, 1000, 'amount keeps the printed gross');
   assert.equal(result.data.total_stated, 1000, 'total_stated retains gross');
   assert.equal(result.data.total_computed, 1000, 'total_computed retains gross sum');
 });
@@ -747,11 +751,12 @@ test('18. _validateExtraction leaves amount unchanged when no VAT code', () => {
   const result = _validateExtraction(parsed, context, {});
   assert.equal(result.ok, true);
   assert.equal(result.data.lines[0].amount, 1000, 'no conversion without VAT code');
+  assert.equal(result.data.lines[0].net_amount, 1000, 'gross = net when no VAT applies');
 });
 
 // ── 19. Gross→net: multi-line with different rates ─────────────────────────
 
-test('19. _validateExtraction converts multi-line gross to net per line', () => {
+test('19. _validateExtraction computes net_amount per line for multi-line gross', () => {
   const context = {
     partners: [],
     expenseAccounts: [],
@@ -774,8 +779,10 @@ test('19. _validateExtraction converts multi-line gross to net per line', () => 
   const result = _validateExtraction(parsed, context, {});
   assert.equal(result.ok, true);
   // 500 / 1.25 = 400
-  assert.equal(result.data.lines[0].amount, 400);
+  assert.equal(result.data.lines[0].net_amount, 400);
+  assert.equal(result.data.lines[0].gross_amount, 500);
   // 620 / 1.12 = 553.57
-  assert.equal(result.data.lines[1].amount, 553.57);
+  assert.equal(result.data.lines[1].net_amount, 553.57);
+  assert.equal(result.data.lines[1].gross_amount, 620);
   assert.equal(result.data.total_stated, 1120, 'total_stated retains gross');
 });

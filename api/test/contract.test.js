@@ -591,7 +591,9 @@ test('payment.record: partial payments, overpayment refused, payment.list histor
 
   const p1 = await api(baseUrl, 'payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 40 });
   assert.equal(p1.status, 200, JSON.stringify(p1.body));
-  assert.equal(p1.body.data.status, 'partial');
+  // 'partial' is no longer a stored status (7a7b5e6): a part-paid bill stays 'posted'
+  // and payment progress is carried by outstanding/amount_paid.
+  assert.equal(p1.body.data.status, 'posted');
   assert.equal(p1.body.data.outstanding, 60);
 
   const over = await api(baseUrl, 'payment.record', { companyId: CO, billId, date: TD.day21, bankAccount: '1020', amount: 61 });
@@ -926,7 +928,7 @@ test('bank.match §4.4 + §2.3: foreign bill within the FX band, ref-corroborate
   assert.equal(String(bp[0].batch_id), batchId, 'no second/duplicate journal batch');
 });
 
-test('bank.match §4.4 + §2.3: foreign bill genuine partial payment → 2-line entry (booking rate, no FX line), bill stays partial', async () => {
+test('bank.match §4.4 + §2.3: foreign bill genuine partial payment → 2-line entry (booking rate, no FX line), bill stays open', async () => {
   const CO_BM = 'CBM2b';
   const seeded = await seedCompany(baseUrl, CO_BM);
   await grantFor(CO_BM);
@@ -961,7 +963,8 @@ test('bank.match §4.4 + §2.3: foreign bill genuine partial payment → 2-line 
   assert.equal(approve.status, 200, JSON.stringify(approve.body));
 
   const bill = await sql(baseUrl, srv.adminToken, `SELECT status, amount_paid FROM bills WHERE company_id='${CO_BM}' AND bill_id='${billId}'`);
-  assert.equal(String(bill[0].status), 'partial', 'well short of the full 600 owed');
+  // 'partial' is no longer a stored status (7a7b5e6): still 'posted', with amount_paid < amount.
+  assert.equal(String(bill[0].status), 'posted', 'well short of the full 600 owed — stays posted, not paid');
   // 324 home ÷ 1.35 booking rate = 240 foreign
   assert.ok(Math.abs(Number(bill[0].amount_paid) - 240) < 0.01, 'amount_paid tracked in foreign currency, derived via the booking rate');
 });

@@ -25,9 +25,9 @@
 | l | Click tab label | Switch to right tab |
 | { | Click sidebar page | Previous sidebar page |
 | } | Click sidebar page | Next sidebar page |
-| Enter | Double-click row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
+| Enter | Click a cell of an editable row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
 | Space | Click ▸/▾ fold icon on parent | **Expand/Collapse** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics). `~` is a silent alias for Space when no page-level `~` binding is active (PR #288) |
-| i | Double-click editable row | Enter INSERT mode (opens entire draft bill for editing) |
+| i | Click a cell of an editable row | Enter INSERT mode (opens entire draft bill for editing) |
 | I | — | Open the focused bill in the full-page editor (`bill-edit.js`) — draft (editable) or posted/void (locked, read-only with journal trail) alike, since the `bill-detail.js` merge (2026-09-06) removed the draft-only guard |
 | a | — | Append new child line to the focused draft bill |
 | x | Click delete icon (on hover) | Delete draft bill / delete current child line / void posted bill (confirm) / void payment (on a payment-history child) |
@@ -38,7 +38,7 @@
 | gg | Scroll to top | Scroll to top |
 | Esc | — | No-op (already in NORMAL) |
 
-`o`/`O` are **retired** on Bills (2026-07-24) — the `+ Add bill` row is the only create path; the full-page editor is reached via `I` or the ref-link / double-click.
+`o`/`O` are **retired** on Bills (2026-07-24) — the `+ Add bill` row is the only create path; the full-page editor is reached via `I` or the reference-number link on the row. (Double-click is not handled — the 2026-07 double-click edit was deleted with the bespoke machinery in the 2026-07-24 `FB.list` migration; a single click on an editable row's cell now enters inline edit.)
 
 Row selection highlights the complete row (parent or child). No cell-level cursor in NORMAL mode.
 
@@ -78,7 +78,7 @@ Exiting INSERT mode (Esc; or click-outside — see below):
 - The dirty bill stays until `w` (write — the only save, one `bill.draft.save` carrying header + all lines) or `u` (undo).
 - Returns to NORMAL mode with selection on the parent row.
 
-Posted bills: `i`/Enter and double-click are no-ops (the framework's `editable` predicate is false). The row is read-only. No INSERT mode is entered.
+Posted bills: `i`/Enter and clicking a cell are no-ops (the framework's `editable` predicate is false). The row is read-only. No INSERT mode is entered.
 
 ### Tab Behavior at Bill Boundaries
 
@@ -305,8 +305,8 @@ In INSERT mode, pressing Enter on the CCY input when a non-base currency is ente
 |---------|-------------|-------------|
 | Fold icon (▸/▾) | Background lightens | pointer |
 | Parent row body | Subtle background tint (mouse only, not after keyboard) | default (clicking selects) |
-| Editable row (draft) | Slightly darker tint + tooltip "double-click to edit" | default |
-| Posted row | No special hover | not-allowed on double-click attempt, or "posted" badge |
+| Editable row (draft) | Same as parent row body — a click enters inline edit (no tooltip) | default |
+| Posted row | No special hover; a click selects the row but does not edit (`editable` false) | default |
 | Delete icon | Turns red | pointer |
 | Post button | Highlights | pointer |
 | Input field (INSERT) | Standard focus ring | text (I-beam) |
@@ -455,7 +455,7 @@ The popup is plain DOM — headless-verifiable, closing the verifiability gap th
 
 ## P1-4 — Full-page bill editor (SHIPPED 2026-07-22 — bill-new.js deleted, −1490 LOC)
 
-> **Amended 2026-10-03 — this section is a historical design record; parts are stale.** (1) The entry points below are wrong: there is no `+ Bill` toolbar link and no `o`/`O` binding on the Bills list. New bills start from the topbar `+ New` menu → "Bill from Supplier" (`/bill/new`) or the list's `+ Add bill` row; a saved draft opens in the full editor with `I`. (2) The editor's interaction model was superseded: `bill-edit.js` runs on `FB.form` (NORMAL at rest, `i`/Enter to edit, `w` save, Esc never saves, `a`/`x` add/delete line — `keyboard-ux-spec.md` §8) and Draft-vs-post is the `~` Draft toggle (`bill-post-payment-consolidation-spec.md`), not "Esc saves, `p` posts". (3) The reference-number link on a Bills row (`payables-bills.js`) opens the editor; "double-click opens the full editor" could not be found in the current code — treat as unverified.
+> **Amended 2026-10-03 — this section is a historical design record; parts are stale.** (1) The entry points below are wrong: there is no `+ Bill` toolbar link and no `o`/`O` binding on the Bills list. New bills start from the topbar `+ New` menu → "Bill from Supplier" (`/bill/new`) or the list's `+ Add bill` row; a saved draft opens in the full editor with `I`. (2) The editor's interaction model was superseded: `bill-edit.js` runs on `FB.form` (NORMAL at rest, `i`/Enter to edit, `w` save, Esc never saves, `a`/`x` add/delete line — `keyboard-ux-spec.md` §8) and Draft-vs-post is the `~` Draft toggle (`bill-post-payment-consolidation-spec.md`), not "Esc saves, `p` posts". (3) The reference-number link on a Bills row (`payables-bills.js`) opens the editor; the originally specified "double-click opens the full editor" no longer exists (removed with the bespoke Bills machinery on 2026-07-24).
 
 ### Purpose
 
@@ -464,7 +464,7 @@ Two creation paths, one editor core:
 | Path | For | Surface |
 |------|-----|---------|
 | **Tree-table INSERT** (existing, default) | Common bills: 1–3 lines, no attachments | Payables → Bills, `+ Add bill` row *(was `o`; no such binding today)* |
-| **Full-page editor** (this section) | Complex bills: many lines, attachments, per-line VAT review | topbar `+ New` → "Bill from Supplier", `I` on a saved draft *(originally: `+ Bill` toolbar link, `O` (shift-o), dblclick — none of the first two exist)* |
+| **Full-page editor** (this section) | Complex bills: many lines, attachments, per-line VAT review | topbar `+ New` → "Bill from Supplier", `I` on a saved draft *(originally: `+ Bill` toolbar link, `O` (shift-o), dblclick — none of the three exist)* |
 
 The full-page editor is the **escape hatch, not a second philosophy**. Same modes, same verbs, same endpoints, same validation authority. Anything the tree-table can do, the editor does identically; the editor adds only what the tree-table structurally cannot (attachments, long line lists, comfortable per-line VAT review).
 
@@ -512,7 +512,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ### Decisions (magnus, 2026-07-22)
 
 1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill. *(Superseded 2026-10-03: the toolbar link and `O` were never kept; see the amendment at the top of this section.)*
-2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity: **double-click opens the full editor** — mouse users always get the editor (magnus, 2026-07-22). Shipped code matches; there is no hover-edit affordance.
+2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity was specified as **double-click opens the full editor** (magnus, 2026-07-22) — *superseded 2026-10-03: no double-click handler exists (removed in the 2026-07-24 `FB.list` migration, `2dc422b`); a single click edits inline and the full editor opens from `I` or the reference-number link.*
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).
 

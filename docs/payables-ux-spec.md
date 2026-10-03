@@ -369,41 +369,23 @@ The following elements from earlier implementations are removed or simplified:
 - j/k dispatch is owned by the framework's `FB.keys` registration (`'bills'`, capture phase); common.js's bubble handler is no longer reached for Bills. The `fbBillNav` capture-phase special-case in common.js is removed (2026-07-24) — the standard key dispatch path now applies to Bills like any other FB.list screen.
 - `gg` double-key logic is retained (deeply ingrained vim muscle memory); all other double-key sequences are removed.
 
-## Vendors Tab (migrated onto fb-core 2026-07-22, P1-3)
+## Partners Tab (FB.list)
 
-The Vendors tab runs the **same interaction model as Bills** — it was previously a one-off cell-cursor design (`hjkl` cell movement, per-cell edit with `d`/`~` verbs and a stale hand-written hint claiming "hjkl navigate" while `h/l` actually switched tabs). The migration adopted the Bills model wholesale rather than porting the cell model onto fb-core.
+*(Rewritten 2026-10-03. This section used to describe the 2026-07-22 fb-core migration of the old Vendors tab — a bespoke row-level INSERT mode where **Esc saved**, with hand-rolled `partnerSaveAndExit`/`partnerSelRow` machinery and a `'partners'` `FB.keys` table. All of that is gone: the tab is now a declarative `FB.list` config and follows the shared doctrine in `fb-list-ux-spec.md`. The DOM ids still say `vendors`.)*
 
-### NORMAL mode
+The Partners tab (`api/src/pages/payables-partners.js`) is one `FB.list.create` config — columns Name, CCY, Terms, Expense A/C, AP A/C, vendor (V) / customer (C) flags and an ACTIVE badge; `partner.list` / `partner.upsert` / `partner.delete` underneath. The framework owns the rest, identically to every other register:
 
-| Key | Mouse | Action |
-|-----|-------|--------|
-| j / k | Click row | Move row selection (sticky at top/bottom, never deselects) |
-| gg / G | — | First / last row |
-| Enter or i | Double-click row | Enter INSERT (row-level edit) |
-| a | — | New partner row at bottom, immediately in INSERT |
-| x | — | Delete partner (unsaved row drops silently; saved partner asks `confirm()`) |
-| ~ | Double-click ACTIVE badge | Toggle active/inactive (saved partners only) |
-| h / l | Click tab | Switch Bills ↔ Partners (NOT bound by the tab — falls through to common.js, same as Bills) |
+| Key | Action |
+|-----|--------|
+| j / k, gg / G | Move row selection; the pinned `+ Add entry` row is reachable (sticky) |
+| i / Enter / click | Edit the row (all editable cells become inputs) |
+| w | Write the dirty buffer (`partner.upsert`) |
+| u | Undo to saved values |
+| Esc | Exits INSERT only — **never saves** (see "Esc never saves" above) |
+| x | Delete (confirm modal); an unsaved new row is dropped silently |
+| ~ | Toggle active/inactive (saved partners only; screen-specific `extraBindings`) |
 
-### INSERT mode (row-level — the whole row becomes inputs)
-
-Pressing `i`/`Enter`/double-click converts **all five editable cells at once** (Vendor, CCY, Terms, Expense A/C, AP A/C) into uniform 32px `.draft-input` fields; the ACTIVE badge stays read-only. This mirrors Bills' bill-level INSERT ("isn't it simpler to reuse full edit rather than specific line edit?").
-
-- **Tab / Shift+Tab** traverse the inputs (native); **sticky at the ends** — Tab on the last input (AP) and Shift+Tab on the first (name) stay put, no accidental focus escape.
-- **Esc saves** — the only save trigger, same doctrine as Bills (no cancel path). Validation: name required (red `.req` border + message, stays in INSERT); CCY checked against the currency list. On server error the row stays in INSERT with inputs untouched.
-- **Empty new row + Esc discards** (never creates something from nothing).
-- **Enter also saves** (form convention; matches the pre-migration Enter-commit).
-- **Click-away saves**: clicking another row with an edit open saves first, then selects the clicked row. The async save does NOT reset `partnerSelRow` — the cursor stays where the click moved it (a completion-handler stomp that yanked it back was fixed on day one).
-- **Leaving the tab** (h/l/{/}) with an edit open saves-or-discards it first (`showPayTab` calls `partnerSaveAndExit()`).
-- **Autocomplete dropdowns** (CCY, both account fields): ArrowUp/Down navigate, Enter selects, Tab selects-and-stays, Esc closes the dropdown only (a second Esc saves the row). Dropdown-aware bindings precede general ones — FB.keys takes the FIRST key+mode+`when` match.
-- j/k/a/x/~ are inert in INSERT (letters type into inputs, per the editable-target guard and mode-scoped bindings).
-
-### Mechanics
-
-- Mode is the shared `FB.mode` store; keys are the `FB.keys` binding table `'partners'` (sidebar hints are generated from it — the static `_PARTNER_HINTS` list is gone).
-- Save path: `partnerSaveAndExit()` → validate → `partner.upsert` → `_renderPartnerRowDisplay()` rebuilds just that row (keeps the list stable, no full re-render flash). `_partnerSaving` guards re-entrant Esc during the flight.
-- The old cell-cursor machinery is deleted: `vendorSelCol`, `vendorCellEdit`, `vendorCellPreEdit`, `enterVendorCellEdit`/`commitVendorCell`, `vendorMoveRow`/`vendorMoveCol`, per-cell save-on-nav (`vendorDirtyRows`), and the `VENDOR_KEYS` capture listener.
-- `window.fbVendorSelRow` is still maintained — common.js's j/k deferral reads it.
+Validation: name required; CCY checked against the currency list. Leaving with dirty rows goes through the shared leave-guard modal. `?tab=partners` deep-links to the tab. CCY and account cells use `FB.dropdown` (`attach`). Duplicate-name handling for agent proposals lives in `partners.js` (exact name blocks; fuzzy warns).
 
 ## FB.dropdown — unified validated autocomplete (IMPLEMENTED 2026-07-21, commit `6c5cdc4` — `fb-core.js`; proposal dated 2026-07-22)
 
@@ -473,14 +455,16 @@ The popup is plain DOM — headless-verifiable, closing the verifiability gap th
 
 ## P1-4 — Full-page bill editor (SHIPPED 2026-07-22 — bill-new.js deleted, −1490 LOC)
 
+> **Amended 2026-10-03 — this section is a historical design record; parts are stale.** (1) The entry points below are wrong: there is no `+ Bill` toolbar link and no `o`/`O` binding on the Bills list. New bills start from the topbar `+ New` menu → "Bill from Supplier" (`/bill/new`) or the list's `+ Add bill` row; a saved draft opens in the full editor with `I`. (2) The editor's interaction model was superseded: `bill-edit.js` runs on `FB.form` (NORMAL at rest, `i`/Enter to edit, `w` save, Esc never saves, `a`/`x` add/delete line — `keyboard-ux-spec.md` §8) and Draft-vs-post is the `~` Draft toggle (`bill-post-payment-consolidation-spec.md`), not "Esc saves, `p` posts". (3) The reference-number link on a Bills row (`payables-bills.js`) opens the editor; "double-click opens the full editor" could not be found in the current code — treat as unverified.
+
 ### Purpose
 
 Two creation paths, one editor core:
 
 | Path | For | Surface |
 |------|-----|---------|
-| **Tree-table INSERT** (existing, default) | Common bills: 1–3 lines, no attachments | Payables → Bills, `o` |
-| **Full-page editor** (this section) | Complex bills: many lines, attachments, per-line VAT review | `+ Bill` toolbar link, `O` (shift-o) from Bills tab, dblclick on a draft's "edit" affordance |
+| **Tree-table INSERT** (existing, default) | Common bills: 1–3 lines, no attachments | Payables → Bills, `+ Add bill` row *(was `o`; no such binding today)* |
+| **Full-page editor** (this section) | Complex bills: many lines, attachments, per-line VAT review | topbar `+ New` → "Bill from Supplier", `I` on a saved draft *(originally: `+ Bill` toolbar link, `O` (shift-o), dblclick — none of the first two exist)* |
 
 The full-page editor is the **escape hatch, not a second philosophy**. Same modes, same verbs, same endpoints, same validation authority. Anything the tree-table can do, the editor does identically; the editor adds only what the tree-table structurally cannot (attachments, long line lists, comfortable per-line VAT review).
 
@@ -527,7 +511,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 
 ### Decisions (magnus, 2026-07-22)
 
-1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill.
+1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill. *(Superseded 2026-10-03: the toolbar link and `O` were never kept; see the amendment at the top of this section.)*
 2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity: **double-click opens the full editor** — mouse users always get the editor (magnus, 2026-07-22). Shipped code matches; there is no hover-edit affordance.
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).

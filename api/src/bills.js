@@ -77,6 +77,74 @@ async function getVatTolerance(companyId) {
   return { flat, pct };
 }
 
+// Shared stated-vs-computed VAT check: createBill (posting) and the Inbox's
+// bill-draft items (draftVatWarnings) both use it, so the rule and the
+// message live in one place. `code` is set for the per-code surface.
+// Returns the warning text, or null when within max(flat, pct × computed).
+function statedVatWarning(stated, computed, tolerance, code) {
+  const diff = Math.abs(stated - computed);
+  if (diff <= Math.max(tolerance.flat, computed * tolerance.pct)) return null;
+  return `Stated VAT${code ? ' for ' + code : ''} ${stated.toFixed(2)} differs from computed ${computed.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`;
+}
+
+// Stated-VAT warning for saved DRAFT bills (Inbox review queue). Drafts keep
+// the stated total in bills.vat_amount (0 = none) and the per-code override
+// map in draft_lines JSON (see saveDraftBill). Recomputes the standard
+// (non-reverse-charge) VAT from the lines' codes and compares, mirroring
+// createBill's two surfaces. Returns Map<bill_id, warning text> holding only
+// the drafts that exceed tolerance.
+async function draftVatWarnings(companyId, drafts) {
+  const out = new Map();
+  const parsed = [];
+  const codes = new Set();
+  for (const d of drafts) {
+    let dl = null;
+    try { dl = d.draft_lines ? JSON.parse(d.draft_lines) : null; } catch (e) { /* malformed → skip */ }
+    const lines = dl ? (Array.isArray(dl) ? dl : (dl.lines || [])) : [];
+    const perCode = (dl && !Array.isArray(dl) && dl.vatAmountsStated && typeof dl.vatAmountsStated === 'object') ? dl.vatAmountsStated : {};
+    const hasPerCode = Object.keys(perCode).length > 0;
+    if (!lines.length || (!hasPerCode && !(Number(d.vat_amount) > 0))) continue;
+    lines.forEach(l => { if (l && l.vat_code) codes.add(String(l.vat_code).trim()); });
+    parsed.push({ d, lines, perCode, hasPerCode });
+  }
+  if (!parsed.length || !codes.size) return out;
+
+  const list = Array.from(codes);
+  const params = { companyId };
+  list.forEach((c, i) => { params[`vc${i}`] = c; });
+  const rows = await query(
+    `SELECT vat_code, rate, is_reverse_charge FROM vat_codes WHERE company_id = @companyId AND vat_code IN (${list.map((_, i) => `@vc${i}`).join(',')}) AND is_active = true`,
+    params
+  );
+  const info = {};
+  for (const r of rows) info[r.vat_code] = { rate: Number(r.rate), rc: !!r.is_reverse_charge };
+  const tolerance = await getVatTolerance(companyId);
+
+  for (const { d, lines, perCode, hasPerCode } of parsed) {
+    const byCode = {};
+    for (const l of lines) {
+      const code = l && l.vat_code ? String(l.vat_code).trim() : '';
+      const i = code ? info[code] : undefined;
+      if (!i || i.rc) continue;   // RC is self-assessed, never stated
+      byCode[code] = (byCode[code] || 0) + Math.round(Number(l.amount || 0) * i.rate * 100) / 100;
+    }
+    const total = Math.round(Object.values(byCode).reduce((a, b) => a + b, 0) * 100) / 100;
+    if (total <= 0) continue;     // no taxable lines — stated VAT is ignored at post time too
+    let warning = null;
+    if (hasPerCode) {
+      for (const code of Object.keys(perCode)) {
+        if (byCode[code] === undefined || isNaN(Number(perCode[code]))) continue;
+        warning = statedVatWarning(Number(perCode[code]), Math.round(byCode[code] * 100) / 100, tolerance, code);
+        if (warning) break;
+      }
+    } else {
+      warning = statedVatWarning(Number(d.vat_amount), total, tolerance);
+    }
+    if (warning) out.set(d.bill_id, warning);
+  }
+  return out;
+}
+
 
 async function handleBills(ctx, action) {
   switch (action) {
@@ -434,11 +502,8 @@ async function createBill(ctx) {
       if (!b) continue; // no computed line for this code on this bill — ignore
       const stated = Number(bill.vat_amounts_stated[code]);
       if (isNaN(stated)) continue;
-      const diff = Math.abs(stated - b.computed);
-      const tol = Math.max(vatTolerance.flat, b.computed * vatTolerance.pct);
-      if (diff > tol) {
-        validation.warnings.push(`Stated VAT for ${code} ${stated.toFixed(2)} differs from computed ${b.computed.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
-      }
+      const w = statedVatWarning(stated, b.computed, vatTolerance, code);
+      if (w) validation.warnings.push(w);
       b.computed = stated;
     }
   } else {
@@ -449,11 +514,8 @@ async function createBill(ctx) {
       if (eligible.length === 0) {
         validation.warnings.push('Stated VAT ignored — no taxable (non-reverse-charge) lines on this bill; check VAT codes');
       } else {
-        const diff = Math.abs(statedVat - computedStdTotal);
-        const tol = Math.max(vatTolerance.flat, computedStdTotal * vatTolerance.pct);
-        if (diff > tol) {
-          validation.warnings.push(`Stated VAT ${statedVat.toFixed(2)} differs from computed ${computedStdTotal.toFixed(2)} by ${diff.toFixed(2)} — verify supplier invoice`);
-        }
+        const w = statedVatWarning(statedVat, computedStdTotal, vatTolerance);
+        if (w) validation.warnings.push(w);
         const largest = eligible.reduce((a, b) => (stdTaxByCode[a].computed >= stdTaxByCode[b].computed ? a : b));
         stdTaxByCode[largest].computed += Math.round((statedVat - computedStdTotal) * 100) / 100;
       }
@@ -1653,4 +1715,4 @@ async function postDraftBill(ctx) {
 }
 
 
-module.exports = { handleBills, listBills, getBillLines, validateBillForPayment };
+module.exports = { handleBills, listBills, getBillLines, validateBillForPayment, draftVatWarnings };

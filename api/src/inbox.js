@@ -24,6 +24,7 @@
 
 const { queryProposals } = require('./journal');
 const { query } = require('./db');
+const { draftVatWarnings } = require('./bills');
 const { closingConfigFor } = require('./jurisdiction-packs');
 
 async function handleInbox(ctx, action) {
@@ -246,12 +247,14 @@ async function queryMappingSuggestions(companyId, limit) {
  * amount, date, proposed_at:created_at, summary,
  * verbs:['y','x'], payload_ref:bill_id, status,
  * reference:vendor_ref, description, created_by, currency,
- * attachment_count, review_note, expense_account, ap_account }.
+ * attachment_count, review_note, expense_account, ap_account,
+ * warnings:['vat_mismatch']|[], vat_warning:text }.
  */
 async function queryBillDrafts(companyId, limit, status) {
   var rows = await query(
     `SELECT b.bill_id, b.partner_name, b.vendor_ref, b.date, b.amount, b.currency, b.description,
             b.created_by, b.created_at, b.status, b.review_note, b.expense_account, b.ap_account,
+            b.vat_amount, b.draft_lines,
             COALESCE(a.cnt, 0) AS attachment_count
      FROM bills b
      LEFT JOIN (
@@ -265,6 +268,10 @@ async function queryBillDrafts(companyId, limit, status) {
      LIMIT @lim`,
     { companyId: companyId, status: status || 'draft', lim: limit }
   );
+
+  // Stated-vs-computed VAT check (same rule as posting) → warnings[] feeds the
+  // existing ⚠ pill on the Inbox row; vat_warning carries the tooltip text.
+  var vatWarn = await draftVatWarnings(companyId, rows);
 
   return rows.map(function (row) {
     return {
@@ -286,7 +293,8 @@ async function queryBillDrafts(companyId, limit, status) {
       review_note: row.review_note || '',
       expense_account: row.expense_account || '',
       ap_account: row.ap_account || '',
-      warning: null, // TODO: factor VAT-tolerance check into shared helper (spec §9)
+      warnings: vatWarn.has(row.bill_id) ? ['vat_mismatch'] : [],
+      vat_warning: vatWarn.get(row.bill_id) || '',
     };
   });
 }

@@ -322,7 +322,7 @@ function underlagBadge(row) {
   var hasVat = warns.some(function (w) {
     return String(w).indexOf('vat_') === 0 || String(w).toLowerCase().indexOf('vat') !== -1;
   });
-  if (hasVat) html += '<span class="ul-warn" title="VAT tolerance flag">\\u26A0</span>';
+  if (hasVat) html += '<span class="ul-warn" title="' + esc(row.vat_warning || 'VAT tolerance flag') + '">\\u26A0</span>';
   return '<a class="ul-doc-link" data-show-docs="1" data-entity-type="' + esc(entityType) + '" data-entity-id="' + esc(entityId) + '">' + html + '</a>';
 }
 
@@ -501,6 +501,7 @@ function mapTxnItem(it) {
     review_note: it.review_note || '',
     attachment_count: Number(it.attachment_count || 0),
     warnings: Array.isArray(it.warnings) ? it.warnings : [],
+    vat_warning: it.vat_warning || '',
     settlement: it.settlement || null,
     lineCount: lines.length, totalDebit: Math.round(dr * 100) / 100, totalCredit: Math.round(cr * 100) / 100,
     _lines: lines

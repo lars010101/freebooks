@@ -1,6 +1,6 @@
 # P2-4a — VAT/Amount Convention Unify (Tax-Exclusive Everywhere)
 
-**Date:** 2026-08-07 · **Status:** RATIFIED (magnus review 2026-08-07 — Q3 flipped to per-code grouping, Q2 backfill conditioned on cutover-scoped control check, Q4 confirmed rename, Q1 confirmed no-change)
+**Date:** 2026-08-07 · **Status:** Shipped 2026-08-07 (verified 2026-10-03: `expandJournalVatLines` in `journal.js`); originally RATIFIED (magnus review 2026-08-07 — Q3 flipped to per-code grouping, Q2 backfill conditioned on cutover-scoped control check, Q4 confirmed rename, Q1 confirmed no-change)
 
 ## 1. Problem
 

@@ -1,6 +1,6 @@
 # Reports & Dashboard Spec
 
-**Status:** Direction ratified 2026-07-27 (chat with Magnus). Spec-first — no code changed yet.
+**Status:** Reports half shipped; Dashboard half dropped (verified 2026-10-03). The report registry (`api/src/report-registry.js`) and Reports hub shipped as specced. The Dashboard (§1, §2) was dropped 2026-08-03 — `nav-registry.js`: Inbox is now the root route — so the Dashboard contract and its KPI cards are history, and "overdue AR" cards moot (AR dropped).
 
 ## 1. Decision
 
@@ -23,7 +23,7 @@ Keep both sections, sharply delineated:
 
 - The ONE report viewer: report type + period/custom dates + comparison (MoM/YoY) + export (Print/PDF, CSV).
 - Report categories: **Financial statements** (PL, BS, CF, SCE) · **Audit** (TB, GL, Journal, Integrity) · **Tax & filings** (VAT return, AP/AR aging, future statutory outputs).
-- Keyboard-first per standing doctrine (mouse parity dropped 2026-07-31, roadmap §0q); migrates onto fb-core/FB.list machinery per `review-roadmap.md (deleted 2026-10-03, see git history)`.
+- Keyboard-first per standing doctrine (mouse parity dropped 2026-07-31, roadmap (deleted 2026-10-03, see git history) §0q); migrates onto fb-core/FB.list machinery per `review-roadmap.md (deleted 2026-10-03, see git history)`.
 
 ## 4. Report registry (architectural foundation)
 
@@ -38,7 +38,7 @@ A single declarative registry drives all report surfaces:
 
 ## 5. Annual financial reports
 
-- A **composite report type** (BS + P&L + SCE + notes) rendered by the same engine, exported to PDF. — Shipped as `report?type=ar` (SE K2); **frozen 2026-07-30**: read-only viewer only, no further development. Gredor owns SE årsredovisning production/submission via the SIE 4 export (roadmap §0p).
+- A **composite report type** (BS + P&L + SCE + notes) rendered by the same engine, exported to PDF. — Shipped as `report?type=ar` (SE K2); **frozen 2026-07-30**: read-only viewer only, no further development. Gredor owns SE årsredovisning production/submission via the SIE 4 export (roadmap (deleted 2026-10-03, see git history) §0p).
 - Respects `companies.reporting_standard` (K2/K3/IFRS) — the engine already knows which GAAP it renders for.
 
 ## 6. Digital authority submissions

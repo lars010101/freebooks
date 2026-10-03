@@ -1,6 +1,6 @@
 # Bills → Partners Link: `bills.partner_id` Spec
 
-**Status:** Draft v2 (ratified) — amended after review: §2.1 switched to per-row loop as primary (not `UPDATE ... FROM`); §3.2 amended to cover the existing-draft UPDATE SET clause.
+**Status:** Implemented (verified 2026-10-03: `bills.partner_id` added in `db/schema.sql`; `bills.js` guards non-vendor partners via `bill.partner_id`) — originally Draft v2 (ratified) — amended after review: §2.1 switched to per-row loop as primary (not `UPDATE ... FROM`); §3.2 amended to cover the existing-draft UPDATE SET clause.
 **Depends on:** `partner-proposal-spec.md` (§1 Partners model); `partner-flags-ui-fix-spec.md` (§3, whose §3.2 server-side guard this spec unblocks).
 **Amends:** `partner-proposal-spec.md` §1.4, which deferred the `bills.vendor`/`partner_name` → FK link as a future milestone. (The `vendor` → `partner_name` *rename* already shipped, per `schema.sql`'s `ALTER TABLE bills RENAME COLUMN vendor TO partner_name;` — only the FK itself remains outstanding.)
 

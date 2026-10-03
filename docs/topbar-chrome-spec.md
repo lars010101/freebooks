@@ -1,6 +1,6 @@
 # Topbar Chrome Spec — GitHub-style header, retiring the bottom status line
 
-**Status:** Draft — design agreed in principle (magnus, 2026-08-28), not yet built.
+**Status:** Built, with later amendments (verified 2026-10-03) — the bottom `#fb-status-line` is gone, replaced by `#fb-status-banner`; the topbar carries the company switcher, period trigger, `+` New menu (`#tb-new-btn`), notification bell, theme button (`#fb-theme-btn`) and Chat with AI icon. Where this doc says otherwise (§7: Chat with AI "icon only, disabled"; `?` overlay "not built") it is stale — chat shipped (`chat-with-ai-spec.md`) and the overlay shipped (`help-overlay-chrome-spec.md`).
 **2026-09-01 update:** every `:` command-bar reference in this document
 (`FB.palette` command mode, `:new`, `:show`, `:light`/`:dark`, `:bill`,
 `:post`, `:pay`, etc.) describes a system that has since been **fully

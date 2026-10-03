@@ -1,6 +1,6 @@
 # freebooks — Jurisdiction Pack Spec
 
-**Date:** 2026-07-29 · **Status:** RATIFIED (magnus, Slack thread 2026-07-29) · **Supersedes:** nothing; extends `reports-dashboard-spec.md` §5/§6 and roadmap §0m item 5
+**Date:** 2026-07-29 · **Status:** RATIFIED (magnus, Slack thread 2026-07-29) · **Supersedes:** nothing; extends `reports-dashboard-spec.md` §5/§6 and roadmap (deleted 2026-10-03, see git history) §0m item 5
 
 **Amended 2026-07-30 (magnus):** SE årsredovisning production + submission removed from scope — Gredor (open source, free, SIE-driven) owns it. §4 annual-report descriptors and §7 migration items 4–5 are **descoped**; the SE integration contract is the SIE 4 export (`report?type=sie`, must keep the 8999 `#RES` line for Gredor). The SRU/INK2 path (§§1–3, §7 items 1–3) remains fully in scope — Gredor does not do tax returns.
 
@@ -156,7 +156,7 @@ The statutory report composite (Bolagsverket årsredovisning, ACRA FS, …): sec
 2. `api/src/sru.js` → split into engine (`filings.js`) + `emitters/sruLines.js` + `SE/filings/ink2.json`. Routes unchanged (`/api/:company/sru/ink2`, `/sru/info`). **The golden test (`tests/sru-golden-2024.mjs`) is the acceptance contract — it must stay byte-identical green.**
    - ✅ DONE 2026-08-01 — engine `api/src/filings.js`, emitter `api/src/emitters/sruLines.js`, descriptor `db/jurisdictions/SE/filings/ink2.json` live; `api/src/sru.js` + `db/jurisdictions/SE/sru_ink2.json` deleted; routes rewired in `reports.js`; pack linter extended with an emitter-existence check.
 3. `periods.tax_attrs` JSON column (idempotent ALTER, house style); Periods grid columns from the manifest; `ink2.js` descriptor constants (8041/8045) become `flag` ops on the declared attributes; `loss_cf` query param remains as an explicit override, period value is the default.
-   - ✅ DONE 2026-08-01 — scope = `tax_attrs` column (pre-existing) + `flag` ops + `loss_cf` period-default; Periods-grid columns deferred per roadmap §0q API-first; company.attr defaults + rollforward proposal (§2) not yet built.
+   - ✅ DONE 2026-08-01 — scope = `tax_attrs` column (pre-existing) + `flag` ops + `loss_cf` period-default; Periods-grid columns deferred per roadmap (deleted 2026-10-03, see git history) §0q API-first; company.attr defaults + rollforward proposal (§2) not yet built.
 4. ~~K2 `annual-report.json` + composite renderer~~ — **CANCELLED 2026-07-30** (Gredor owns SE årsredovisning production/submission via the SIE 4 export; `report?type=ar` frozen as read-only viewer).
 5. ~~SG `annual-report.json` as the seam-proof second pack~~ — **DESCOPED 2026-07-30** (no live SG need; resurrect if a jurisdiction without a Gredor-equivalent appears).
 

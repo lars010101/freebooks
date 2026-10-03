@@ -8,7 +8,7 @@
 
 ## 0. Doctrine
 
-freebooks is **agent-first** (ratified 2026-07-31, magnus — roadmap §0q):
+freebooks is **agent-first** (ratified 2026-07-31, magnus — roadmap (deleted 2026-10-03, see git history) §0q):
 
 - **The API/MCP surface is the product.** The web UI is a viewer plus a small human correction surface.
 - **Mouse parity is dropped.** Existing mouse support stays in place, but parity is no longer a requirement, review criterion, or test gate. New work ships keyboard + API only.

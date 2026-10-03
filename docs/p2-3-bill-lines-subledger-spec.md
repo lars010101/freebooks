@@ -1,6 +1,6 @@
 # P2-3 — Bill Lines Subledger + AP Control Report
 
-**Date:** 2026-08-07 · **Status:** RATIFIED
+**Date:** 2026-08-07 · **Status:** Shipped 2026-08-07 (verified 2026-10-03: `bill_lines` table in `db/schema.sql`, `ap_control` check in `db/macros.sql`)
 
 ## 1. Problem
 

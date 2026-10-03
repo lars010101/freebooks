@@ -1,6 +1,6 @@
 # AP Aging Drill-Through Spec
 
-Status: **DRAFT — proposal, not yet ratified.** Companions: `fb-list-ux-spec.md` (tree mode, §6.1; the machine this spec builds on), `payables-ux-spec.md` (Bills tree-table precedent). Raised alongside the FB.list default-period work — AP Aging is the intended "reach any open bill regardless of period" escape hatch once Bills defaults to the current ledger period, and it needs to actually go somewhere for that to hold.
+Status: **Shipped (verified against code 2026-10-03).** Drill-through exists: `reports/render.js` builds bill links with `?from=ap-aging&asof=` (~L1703, ~L1746) and `bill-edit.js`'s `returnUrl()` honours them; the dead `api/src/pages/ap-aging.js` is gone. §2 below describes the pre-implementation state and is kept as history. Companions: `fb-list-ux-spec.md` (tree mode, §6.1; the machine this spec builds on), `payables-ux-spec.md` (Bills tree-table precedent). Raised alongside the FB.list default-period work — AP Aging is the intended "reach any open bill regardless of period" escape hatch once Bills defaults to the current ledger period, and it needs to actually go somewhere for that to hold.
 
 ---
 

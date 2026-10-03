@@ -1,6 +1,6 @@
 # Bank Page Dissolution — Spec
 
-**Status:** PROPOSED 2026-08-05
+**Status:** Partly shipped, partly superseded (verified 2026-10-03) — see the 2026-09-19 correction below: the old Import/Mappings paths were removed as designed, but the Bank page itself was revived and is live.
 **Context:** Phase B (B1–B8) shipped the agent-first bank-matching pipeline. The Bank page's three tabs (Import, Mappings, Transactions) are now superseded. This spec dissolves the Bank sidebar item and relocates the one surviving feature (reconciliation).
 
 **Correction (2026-09-19):** This spec's page-deletion outcome did not stick. `bank.js`/`bank-import.js` were deleted as designed (issue #137, 2026-08-09), and the sidebar/palette entries were dropped as designed. But the Bank page was later **revived** (nav-registry.js: "Bank page revived (two-way-payments-prep)") as a new `api/src/pages/bank.js` with Payments + Reconciliation tabs, reclaiming the sidebar slot and `gKey: 'b'` — it is live again today (`sidebar: true` in `nav-registry.js`). `bank-import.js` stayed deleted; only the plain Bank page returned. The standalone `reconciliation` report type proposed in §2 below was **never built** — no `reconciliation` entry exists in `api/src/report-registry.js`. Reconciliation instead shipped as a tab on the revived Bank page, not as a report. Everything below this note describes the original 2026-08-05 proposal and its 2026-08-24 "completed" status, both since overtaken by the revival — kept as historical record, not current state.

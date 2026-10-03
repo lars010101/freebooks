@@ -1,6 +1,6 @@
 # Partner Proposal & Partners Unification Spec
 
-**Status:** Draft (for ratification).
+**Status:** Shipped (verified 2026-10-03) — issue #116 closed; the proposal flow lives in `partners.js`, `agent-loop.js`, `inbox.js` and the Inbox Partners tab.
 **Depends on:** agent-readiness-spec (R2, §2.3 whitelist, §10 inbox taxonomy, §5.2 MCP manifest), bank-matching-spec (cascade tiers 1–4, §8.2 action table, §9 write-permission boundary), bank-mapping-suggestions-spec (§3 crystallization, §4 conflict detection), bill-extraction-spec (agent `bill.create` draft flow).
 **Closes:** issue #116.
 **Amends:** agent-readiness-spec §7 ("Agent-proposed master data … stays human-only until a proposal pattern for master data is designed" — this spec IS that pattern).

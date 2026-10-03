@@ -1,5 +1,7 @@
 # Settings/AI Tab — Flattened Spec
 
+**Status:** Shipped (verified 2026-10-03). Grid shipped in #182/#183; the `Action` row type and Test connection in #196–#199 (issue #179, closed). Agent status was removed from this tab and now surfaces as the Inbox `#agent-warn` pill (silent unless the agent or feed watcher is stopped) plus the status dot on the topbar Chat with AI icon (issue #180, closed).
+
 ## Goal
 Flatten Settings → AI from three grouped sections of discrete fields into a single Attribute/Value/Type list, following the pattern already established on Settings → Company.
 

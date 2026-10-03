@@ -1,6 +1,6 @@
 # Reference Format Simplification — `{CODE}/{YEAR}/{NNNNN}` → Plain Doc Number
 
-**Status:** Proposal — open for ratification (not yet implemented)
+**Status:** Implemented (verified 2026-10-03) — issue #175 closed 2026-08-11; `getNextReference` in `journal.js` now mints a plain zero-padded number per journal per year (no `{CODE}/{YEAR}/` prefix). §0.1's "current behavior" snippet is the pre-change code, kept as history.
 **Issue:** [#175](https://github.com/lars010101/freebooks/issues/175)
 **Depends on:** `journal_id` column on `journal_entries` (landed on `main`, added as part of the opening-balance work)
 **Touches:** `api/src/journal.js`, `api/src/pages/journal.js`, `api/src/pages/journal-new.js`, `api/src/sie-export.js`, `reports/render.js`, `api/src/action-catalog.js`

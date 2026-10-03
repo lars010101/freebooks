@@ -1,11 +1,11 @@
 # Keyboard UX Spec — navigation, go-to map, palette, switcher, toggle verb
 
-**Status:** ratified 2026-07-28 (Slack design thread, magnus) · **Phase:** K1 shipped
+**Status:** ratified 2026-07-28 (Slack design thread, magnus) · **Phase:** K1–K5 all shipped (see §9)
 **Consumers:** `api/src/nav-registry.js`, `api/public/fb-core.js`, `api/public/common.js`, `api/public/fb-list.js`, `api/src/pages/common.js`
 
 ---
 
-## 0. Agent-first UI doctrine (ratified 2026-07-31, magnus — roadmap §0q)
+## 0. Agent-first UI doctrine (ratified 2026-07-31, magnus — roadmap (deleted 2026-10-03, see git history) §0q)
 
 freebooks is agent-first: the API/MCP surface is the product; the web UI is
 a viewer plus a small human correction surface. Consequences for this spec:

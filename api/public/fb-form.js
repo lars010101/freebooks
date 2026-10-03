@@ -44,6 +44,16 @@
     var ROW_CLS = 'fb-form-row-focus';
     var CELL_CLS = 'fb-form-cursor';
     var CELL_BTN_CLS = 'fb-form-cursor-btn';
+    // Read-only cellular cursor (2026-09-19, cfg.readOnly): a form whose
+    // cells are plain navigation links with nothing to edit or toggle (e.g.
+    // AP Control's drill-through <a> cells) gets an underline instead of
+    // CELL_BTN_CLS's ring/rounded-border — the ring exists to read as
+    // "focused control", which fits a real toggle button (bill-edit,
+    // journal-voucher, reports-hub's comparison-cycle button) but not a
+    // plain link with no state of its own. Opt-in per FB.form.create call,
+    // not tag-based — a page's BUTTON/A cells are still whatever that page
+    // says they are.
+    var CELL_BTN_RO_CLS = 'fb-form-cursor-btn-ro';
 
     function zones() { return cfg.zones; }
     function zoneRows(zi) {
@@ -95,6 +105,7 @@
       document.querySelectorAll('.' + ROW_CLS).forEach(function (el) { el.classList.remove(ROW_CLS); });
       document.querySelectorAll('.' + CELL_CLS).forEach(function (el) { el.classList.remove(CELL_CLS); });
       document.querySelectorAll('.' + CELL_BTN_CLS).forEach(function (el) { el.classList.remove(CELL_BTN_CLS); });
+      document.querySelectorAll('.' + CELL_BTN_RO_CLS).forEach(function (el) { el.classList.remove(CELL_BTN_RO_CLS); });
       var rows = zoneRows(cur.z);
       var rowEl = rows[cur.r];
       if (!rowEl) return;
@@ -106,8 +117,11 @@
         // Buttons (and anchor "button cells" — 2026-09-16) get a RING
         // cursor (CELL_BTN_CLS), not the fill — a toggle button's own
         // active state carries a fill color and the two must stay
-        // distinguishable (magnus 2026-07-28; common.css).
-        cell.classList.add((cell.tagName === 'BUTTON' || cell.tagName === 'A') ? CELL_BTN_CLS : CELL_CLS);
+        // distinguishable (magnus 2026-07-28; common.css). cfg.readOnly
+        // forms (2026-09-19) get the underline variant instead — see
+        // CELL_BTN_RO_CLS above.
+        var isBtnCell = cell.tagName === 'BUTTON' || cell.tagName === 'A';
+        cell.classList.add(isBtnCell ? (cfg.readOnly ? CELL_BTN_RO_CLS : CELL_BTN_CLS) : CELL_CLS);
         if (cell.scrollIntoView) cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
       // K3e enforcement (magnus 2026-07-28): in NORMAL, NO form element may

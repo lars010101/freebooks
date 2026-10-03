@@ -1318,6 +1318,19 @@ tr.fb-form-row-focus > td, div.fb-form-row-focus { background: var(--bg); }
   outline-offset: 1px;
   border-radius: 4px;
 }
+/* Read-only cellular cursor (2026-09-19) — fb-form.js's cfg.readOnly forms
+   (e.g. AP Control's drill-through link grid): the ring above reads as
+   "focused control", which fits a real toggle button but not a plain link
+   with no state of its own — underline instead, global for any form that
+   opts into cfg.readOnly, not just AP Control. */
+.fb-form-cursor-btn-ro {
+  outline: none !important;
+  border-radius: 0;
+  text-decoration: underline !important;
+  text-decoration-color: var(--accent) !important;
+  text-decoration-thickness: 2px !important;
+  text-underline-offset: 3px;
+}
 
 /* FB.nav focus ring (K5) — the visible selector for non-table nav surfaces
    (dashboard stat cards + report links, and any future FB.nav consumer that

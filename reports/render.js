@@ -1899,6 +1899,7 @@ async function buildApControl(query, company, _start, end) {
   window.__fbFlags = Object.assign(window.__fbFlags || {}, { jurisdiction: ${JSON.stringify(jurisdiction)} });
   var apControlForm = FB.form.create({
     formId: 'ap-control',
+    readOnly: true,
     active: function () {
       var el = document.getElementById('ap-control-table');
       return !!el && el.offsetParent !== null;

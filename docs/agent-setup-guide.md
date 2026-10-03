@@ -4,7 +4,7 @@ How to connect an AI agent to freebooks safely. Read the security model first �
 it is short, and it is the reason every scenario below is safe by construction.
 
 Spec references: `docs/agent-readiness-spec.md` (§2.5 tokens, §2.3 default-deny,
-§5 MCP) · `docs/review-roadmap.md` §0w.
+§5 MCP) · `docs/review-roadmap.md (deleted 2026-10-03, see git history)` §0w.
 
 ---
 

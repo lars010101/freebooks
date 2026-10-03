@@ -232,7 +232,7 @@ Per §2.2, no toggle. QBO and Xero don't have one on journal entries. Adding one
 | `tests/journal-vat.test.js` (new) | Contract tests for §6 cases 1–3, 7, 9. |
 | `tests/bank-vat.test.js` (new or extend) | Regression: bank import split unchanged (cases 4–5). |
 | `tests/vat-return.test.js` (extend) | Case 6: VAT return consistency across both conventions. |
-| `docs/review-roadmap.md` | Status update entry. |
+| `docs/review-roadmap.md (deleted 2026-10-03, see git history)` | Status update entry. |
 
 ## 9. Ratified decisions (magnus review 2026-08-07)
 

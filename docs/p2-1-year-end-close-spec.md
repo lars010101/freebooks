@@ -284,7 +284,7 @@ Breaking change for any existing callers. Search the codebase for all call sites
 | `api/src/jurisdiction-packs.js` | Add `getClosingConfig(companyId)` helper |
 | `tests/jurisdiction-packs.mjs` | Pack linter: validate `closing` block |
 | New test file | Contract tests for `period.close` (idempotent, guard, pack-driven, reversal) |
-| `docs/review-roadmap.md` | Status update entry |
+| `docs/review-roadmap.md (deleted 2026-10-03, see git history)` | Status update entry |
 
 ## 11. Test plan
 

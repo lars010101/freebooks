@@ -2,7 +2,7 @@
 
 Notes for picking this back up in a new session. Context: PR #293
 (`fix/keyboard-shortcuts-consolidation-pass`) — see its description and
-`docs/review-roadmap.md`'s PR #293 entries for what already shipped.
+`docs/review-roadmap.md (deleted 2026-10-03, see git history)`'s PR #293 entries for what already shipped.
 
 ## 1. Payables `I` key — on hold
 

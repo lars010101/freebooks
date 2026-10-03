@@ -23,7 +23,7 @@ Keep both sections, sharply delineated:
 
 - The ONE report viewer: report type + period/custom dates + comparison (MoM/YoY) + export (Print/PDF, CSV).
 - Report categories: **Financial statements** (PL, BS, CF, SCE) · **Audit** (TB, GL, Journal, Integrity) · **Tax & filings** (VAT return, AP/AR aging, future statutory outputs).
-- Keyboard-first per standing doctrine (mouse parity dropped 2026-07-31, roadmap §0q); migrates onto fb-core/FB.list machinery per `review-roadmap.md`.
+- Keyboard-first per standing doctrine (mouse parity dropped 2026-07-31, roadmap §0q); migrates onto fb-core/FB.list machinery per `review-roadmap.md (deleted 2026-10-03, see git history)`.
 
 ## 4. Report registry (architectural foundation)
 
@@ -51,7 +51,7 @@ A single declarative registry drives all report surfaces:
 
 1. Remove the embedded report viewer from the Dashboard (`company.js`); replace with drill-through links.
 2. Rewire Dashboard cards onto `db/macros.sql` (kill bespoke SQL).
-3. Migrate Dashboard to fb-core typography/UI core (flagged in `review-roadmap.md` as old form-style with pt violations).
+3. Migrate Dashboard to fb-core typography/UI core (flagged in `review-roadmap.md (deleted 2026-10-03, see git history)` as old form-style with pt violations).
 4. Introduce the report registry; move hub dropdown + palette entries onto it.
 
 **Status 2026-07-27 (items 1–4 shipped):** Dashboard viewer removed → grouped drill-through links per registry category; cards re-wired onto `pl()`/`bs()` — also fixes the old card SQL's mixed-transaction-currency sums (macros use `debit_home`/`credit_home`); Dashboard typography now rem/CSS-vars per `UI.md`; `api/src/report-registry.js` introduced — hub dropdown (categorized optgroups), MoM/YoY enablement and start-date requirements all derive from it. Palette has no per-report surface to migrate (reports aren't actions; the VAT return stays a `report.*` action). Hub fix bundled: `?t=` drill-through now reflects in the dropdown and auto-loads the report (plain visits still load manually).

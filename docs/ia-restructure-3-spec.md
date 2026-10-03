@@ -10,7 +10,7 @@
 ## 0. Explicitly out of scope
 
 1. **The periodic/background Integrity Check nag.** Discussed and deliberately deferred — only the tab-local dot indicator ships in this pass. A scheduled check (piggybacking on `agent-loop.js`'s tick, or a new job) plus an Inbox item is a separate, later spec.
-2. **The check logic itself.** `integrity()`/`integrity_extended()` (`db/macros.sql`) and `buildIntegrity()` (`reports/render.js`) are unchanged — this spec is about where results surface, not what's evaluated or how the current-year-unclosed-profit adjustment works (already handled, see `review-roadmap.md` discussion 2026-08-29).
+2. **The check logic itself.** `integrity()`/`integrity_extended()` (`db/macros.sql`) and `buildIntegrity()` (`reports/render.js`) are unchanged — this spec is about where results surface, not what's evaluated or how the current-year-unclosed-profit adjustment works (already handled, see `review-roadmap.md (deleted 2026-10-03, see git history)` discussion 2026-08-29).
 3. **Fiscal and Payables page contents.** Unaffected except that Payables' Aging/Control tabs inherit the §1 loading-mechanism fix, since they already share the exact iframe pattern this spec removes elsewhere.
 4. **Renaming "Accounting."** Explicitly kept as-is this round (open item from prior discussion, resolved: no rename).
 

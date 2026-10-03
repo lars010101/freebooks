@@ -10,7 +10,7 @@
 ## 0. Explicitly out of scope
 
 1. **The chrome rework** (top/bottom bar swap, the live global Period Selector with Period/Custom modes, moving the command bar to the bottom status line) is a separate, sequenced follow-up. Per design-review decision: IA restructure ships first, chrome second, because the chrome's per-page dimming logic depends on the final page list being stable. This spec only **declares** the `dateRelevance` value per page/report (§9) — nothing reads it yet.
-2. **Receivables** is not built in this pass. AR remains tracked as open backlog (`review-roadmap.md` P3-1, issue #110). This spec does not add a `receivables` route, page, or gKey — see §6.1 for why, and what the eventual shape should reuse.
+2. **Receivables** is not built in this pass. AR remains tracked as open backlog (`review-roadmap.md (deleted 2026-10-03, see git history)` P3-1, issue #110). This spec does not add a `receivables` route, page, or gKey — see §6.1 for why, and what the eventual shape should reuse.
 3. **Bill entry paths** (agent, inline grid, full-page form, command-bar `:bill`) are unchanged — reviewed and deliberately kept as a tiered ladder, not IA scope.
 
 ---

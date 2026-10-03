@@ -229,7 +229,6 @@ freebooks/
 │   ├── p2-3-bill-lines-subledger-spec.md
 │   ├── p2-4a-vat-unify-spec.md
 │   ├── partner-proposal-spec.md
-│   ├── review-roadmap.md        # running architecture/decision log — see its own staleness caveat at the top
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
 └── Dockerfile                  # container image (Wolfi/distrobox)
@@ -373,6 +372,19 @@ Each jurisdiction directory contains:
 `setup.init` auto-discovers packs by directory scan; a pack linter (`tests/jurisdiction-packs.mjs`) is a CI gate. Add a new jurisdiction by creating a directory with these files. Integration capabilities (SIE export/import, SRU) are gated by the pack's `integrations` declarations.
 
 ---
+
+## Engineering Rules
+
+Standing rules carried over from the retired architecture review (`docs/review-roadmap.md`, deleted 2026-10-03; recoverable from git history):
+
+1. Every feature: API action + schema + contract test first, UI second.
+2. The posted ledger is append-only; corrections via reversing entries, never mutation.
+3. Every mutating action is idempotent (key accepted) and audited.
+4. Backend warnings must have a UI channel; warnings are never silently dropped.
+5. Spec docs are updated in the same commit as behavior changes.
+6. Dead code is deleted, not commented out — including endpoints, CSS and `.bak` files.
+
+Open backlog lives in GitHub issues, not in docs.
 
 ## License
 

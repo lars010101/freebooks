@@ -89,8 +89,8 @@ var partnersList = FB.list.create({
     { field: 'payment_terms_days', type: 'number', width: 55, align: 'center', sortable: true, filterType: 'amount' },
     { field: 'default_expense_account', type: 'text', width: 130, attach: partnerAttachAcct, sortable: true, filterType: 'text' },
     { field: 'default_ap_account', type: 'text', width: 130, attach: partnerAttachAcct, sortable: true, filterType: 'text' },
-    { field: 'is_vendor', type: 'checkbox', align: 'center', width: 50, sortable: true, filterType: 'list', display: function(v) { return v !== false ? 'V' : '\u2014'; } },
-    { field: 'is_customer', type: 'checkbox', align: 'center', width: 50, sortable: true, filterType: 'list', display: function(v) { return v === true ? 'C' : '\u2014'; } },
+    { field: 'is_vendor', type: 'checkbox', align: 'center', width: 50, sortable: true, filterType: 'list', display: function(v) { return v !== false ? '\u2713' : '\u2014'; } },
+    { field: 'is_customer', type: 'checkbox', align: 'center', width: 50, sortable: true, filterType: 'list', display: function(v) { return v === true ? '\u2713' : '\u2014'; } },
     { field: 'is_active', type: 'checkbox', align: 'center', ro: 'always', sortable: true, filterType: 'list', display: partnerActiveBadge }
   ],
   blank: function() { return { name: '', default_currency: '', payment_terms_days: 30, default_expense_account: '', default_ap_account: '', is_vendor: true, is_customer: false, is_active: true }; },

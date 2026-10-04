@@ -31,7 +31,6 @@ ${commonStyle()}
   .field-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
   .field-row label { font-weight:600; font-size:0.8125rem; color:var(--text-muted); }
   .field-row input[type=text], .field-row select { padding:8px 12px; border:1px solid var(--border); border-radius:4px; font-size:0.8125rem; max-width:300px; background:var(--surface); color:var(--text); }
-  tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
   .dirty-val { color:var(--warning); }
   tr.row-editing > td { background:var(--warning-bg); }
   .row-actions { white-space:nowrap; text-align:right; }

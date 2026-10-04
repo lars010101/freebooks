@@ -475,6 +475,12 @@ tr.fb-add-row.nav-row-focus td { background: var(--accent) !important; color: rg
    `data-theme` on <html> — see common.js) — the dark-mode override below
    had never fired. */
 tr.fb-draft-dirty td { background: var(--warning-bg); }
+/* FB.list dirty row (Esc left an unsaved buffer; `w` writes, `u` undoes —
+   fb-list-ux-spec §3): fb-list.js adds .row-dirty to the <tr>. A 3px amber
+   bar on the first cell. Was copy-pasted page-locally in accounting,
+   settings, exchange-rates and calendar and MISSING everywhere else
+   (Payables Vendors, Bank, Inbox, ...), so a dirty row there looked clean. */
+tr.row-dirty > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
 .tb-icon-btn {
   width: 32px; height: 32px;
   border: 1px solid rgba(255,255,255,.15);

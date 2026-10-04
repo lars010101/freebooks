@@ -346,12 +346,13 @@ ${commonStyle()}
 
   /* Aging/Control tabs — fetched report fragment, not an iframe (no nested
      document navigation, no duplicate <head>/CSS parse). Mirrors
-     reports/render.js htmlPage()'s embedded styling, theme-aware. White
-     card on this page's own gray background — the QBO/Xero convention for
-     rendered financial statements (magnus, 2026-09-17: "go towards the
-     industry standard, benchmark QBO/Xero"). docs/ia-restructure-3-spec.md
-     §1. */
-  .rpt-embed { border:none; width:100%; min-height:500px; display:block; background:var(--surface); border-radius:8px; padding:16px 20px; }
+     reports/render.js htmlPage()'s embedded styling, theme-aware. Flush on
+     the page, no wrapping card — same as Bills/Vendors (docs/UI.md Table
+     standard), so the column headers start at the identical x/y. This
+     reverses the 2026-09-17 white-card (QBO/Xero) look; screen-only —
+     print/PDF use the standalone report page's own CSS.
+     docs/ia-restructure-3-spec.md §1. */
+  .rpt-embed { border:none; width:100%; min-height:500px; display:block; }
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
   /* Sticky-header scroll fix (magnus, 2026-09-17/18) — same root cause and
@@ -367,26 +368,26 @@ ${commonStyle()}
   /* AP Aging's fragment has a sticky <thead th> — same border-collapse/
      position:sticky bug fix as reports-hub.js's identical comment
      (magnus, 2026-09-17). */
-  .rpt-embed table { width:100%; border-collapse:separate; border-spacing:0; margin-top:8px; }
-  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
+  .rpt-embed table { width:100%; border-collapse:separate; border-spacing:0; }
+  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
   /* AP Aging's fragment carries <table class="edit-table"> (FB.list-
      editable) — common.css's shared sticky-header rule paints that th
      gray (.edit-table thead th { background:var(--bg) }), which out-
      specifies .rpt-embed th above regardless of source order, same issue
      as reports-hub.js's identical fix (magnus, 2026-09-17). */
   /* Same box-shadow fix as reports-hub.js's identical comment. */
-  .rpt-embed table.edit-table thead th { background:var(--surface); box-shadow:0 -200px 0 0 var(--surface); }
+  .rpt-embed table.edit-table thead th { background:var(--bg); box-shadow:0 -200px 0 0 var(--bg); }
   /* Same padding-right gap as reports-hub.js's identical comment — AP
      Aging's ≡ filter icon was rendering overlapping its own header text,
      with no space reserved for it (magnus, 2026-09-18). */
   .rpt-embed th.fb-th-filterable { padding-right: 24px; }
-  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  .rpt-embed td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
   /* AP Aging's own row classes (tr.total-row, tr[data-child-of]) had no
      mirror here at all — the total row rendered with no weight/border,
      same "not even a total rule" gap PL/BS's tr.total had before darker
      borders were added (magnus, 2026-09-16). */
   .rpt-embed tr.total-row td { font-weight:700; border-top:3px solid var(--text); background:var(--bg); }
-  .rpt-embed tr[data-child-of] td { font-size:0.75rem; color:var(--text-muted); background:var(--bg); padding:4px 8px; }
+  .rpt-embed tr[data-child-of] td { font-size:0.75rem; color:var(--text-muted); background:var(--bg); padding:4px 6px; }
   .rpt-embed tr[data-child-of] td:first-child { padding-left:24px; }
   /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
      — stripped along with the rest of <head> by loadReportEmbed's DOMParser

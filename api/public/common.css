@@ -461,7 +461,7 @@ tr.nav-row-focus:not(.row-editing) > td {
    is a different mechanism.) */
 .fb-add-row td {
   color: var(--text-muted) !important;
-  padding: 8px 12px !important;
+  padding: 4px 12px !important;
   border-top: 1px dashed var(--border) !important;
   cursor: pointer;
   user-select: none;

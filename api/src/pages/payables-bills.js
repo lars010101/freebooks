@@ -1033,7 +1033,7 @@ var billsList = FB.list.create({
     // 'posted' bill (whether nothing or something has been paid toward it)
     // — blank for anything else (draft/rejected/void have none; 'paid' is
     // redundant with the Paid badge, always 0 here).
-    { field: 'outstanding', type: 'number', ro: 'always', sortable: true, filterType: 'amount', align: 'right', label: 'Outstanding',
+    { field: 'outstanding', type: 'number', ro: 'always', sortable: true, filterType: 'amount', align: 'right', label: 'Balance',
       display: function (v, r) {
         if (r.status !== 'posted') return '<span class="pe-ro">—</span>';
         return '<span class="amt">' + FB.util.fmtAmt(Number(v) || 0) + '</span>';

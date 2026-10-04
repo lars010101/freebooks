@@ -125,30 +125,30 @@ ${commonStyle()}
      2026-07-22 — at 7% the corner-pinned filter icon overlapped the "CCY"
      label at ≤1400px viewports). Partner is information-dense; CCY only needs
      a 3-letter code + header affordances. */
-  #bills-table col.col-partner { width:15%; }
-  #bills-table col.col-date   { width:11%; }
-  #bills-table col.col-due    { width:11%; }
+  #bills-table col.col-partner { width:17%; }
+  #bills-table col.col-date   { width:10%; }
+  #bills-table col.col-due    { width:10%; }
   #bills-table col.col-ref    { width:13%; }
   #bills-table col.col-amount { width:13%; }
-  #bills-table col.col-outstanding { width:11%; }
+  #bills-table col.col-outstanding { width:10%; }
   #bills-table col.col-ccy    { width:8%; }
-  #bills-table col.col-status { width:14%; }
+  #bills-table col.col-status { width:10%; }
   /* ACTIONS: the framework's trailing row-actions <td> (fb-list.js rowHtml —
-     every parent row, tree or not) — matches the .data-table th:last-child/
-     td:last-child min-width:110px rule below. Carved out of Partner's share
-     (was 22%; had no track reserved for this column at all before). */
-  #bills-table col.col-actions { width:4%; }
-  /* CCY collapsed: redistribute its 8% (partner +5, ref +1, amount +0.5,
-     outstanding +1, status +0.5) so widths still sum to 100% (excl.
-     Actions' fixed 4%) — same redistribution doctrine as before Outstanding
-     (2026-09-15) existed, just re-balanced around it. */
-  #bills-table.single-ccy col.col-partner { width:20%; }
-  #bills-table.single-ccy col.col-date   { width:11%; }
-  #bills-table.single-ccy col.col-due    { width:11%; }
+     every parent row, tree or not). Deliberately NO width: the other columns
+     sum to 91% (also with CCY collapsed, see below) and this auto column
+     takes the remainder (~9%, ≈110px at typical widths). A fixed 4% used to
+     reserve a track narrower than its own chips (pay ✓ / write-off ≈ / void ✕
+     / dirty write+revert), so they spilled out past the table's right edge
+     (2026-10-04). min-width below is ignored under table-layout:fixed. */
+  /* CCY collapsed: redistribute its 8% so the non-Actions columns still sum
+     to 91% (partner +5, ref +1, amount +1, status +1). */
+  #bills-table.single-ccy col.col-partner { width:22%; }
+  #bills-table.single-ccy col.col-date   { width:10%; }
+  #bills-table.single-ccy col.col-due    { width:10%; }
   #bills-table.single-ccy col.col-ref    { width:14%; }
-  #bills-table.single-ccy col.col-amount { width:13.5%; }
-  #bills-table.single-ccy col.col-outstanding { width:12%; }
-  #bills-table.single-ccy col.col-status { width:14.5%; }
+  #bills-table.single-ccy col.col-amount { width:14%; }
+  #bills-table.single-ccy col.col-outstanding { width:10%; }
+  #bills-table.single-ccy col.col-status { width:11%; }
   /* Conditional CCY: column hidden when all visible bills share one currency.
      visibility:collapse on the <col> is the spec'd mechanism — the column's
      space is reclaimed WITHOUT breaking column-track mapping (display:none on
@@ -469,7 +469,7 @@ ${commonStyle()}
           <th class="sortable" data-col="due_date" data-filter-type="date"><div class="th-inner"><span class="th-label">Due</span><span class="th-sort"></span></div></th>
           <th data-col="vendor_ref" data-filter-type="text"><div class="th-inner"><span class="th-label">Reference</span></div></th>
           <th class="sortable" data-col="amount" data-filter-type="amount"><div class="th-inner"><span class="th-label">Amount</span><span class="th-sort"></span></div></th>
-          <th class="sortable" data-col="outstanding" data-filter-type="amount"><div class="th-inner"><span class="th-label">Outstanding</span><span class="th-sort"></span></div></th>
+          <th class="sortable" data-col="outstanding" data-filter-type="amount"><div class="th-inner"><span class="th-label">Balance</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="currency" data-filter-type="list"><div class="th-inner"><span class="th-label">CCY</span><span class="th-sort"></span></div></th>
           <th class="sortable" data-col="status" data-filter-type="list"><div class="th-inner"><span class="th-label">Status</span><span class="th-sort"></span></div></th>
           <th>Actions</th>
@@ -502,7 +502,7 @@ ${commonStyle()}
            columns (Currency/Terms sat under AP/Expense Account's labels,
            and Vendor/Customer had no header at all, past the end of the
            header row) and no Actions header at all. -->
-      <thead><tr><th>Name</th><th>Currency</th><th>Terms (days)</th><th>Expense Account</th><th>AP Account</th><th>Vendor</th><th>Customer</th><th>Active</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Name</th><th>CCY</th><th>Terms (days)</th><th>Expense Account</th><th>AP Account</th><th>Vendor</th><th>Customer</th><th>Active</th><th>Actions</th></tr></thead>
       <tbody id="vendors-body"></tbody>
     </table>
   </div>

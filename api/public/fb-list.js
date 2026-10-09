@@ -983,6 +983,17 @@
       if (cfg.actions) ensureToolbar();
       var m = merged();
       tb.innerHTML = m.map(rowHtml).join('') + (canAdd ? addRowHtml() : ''); // add row pinned bottom (canAdd)
+      // Stray caret (2026-10-04): destroying the edit <input> (Esc, write,
+      // revert) leaves a collapsed selection parked in the cell the input
+      // used to occupy — activeElement is BODY, mode NORMAL, yet the browser
+      // draws a blinking text caret in the read-only cell. Normal mode must
+      // never show a caret, so drop a collapsed selection that landed inside
+      // this tbody. Scoped to tbody + collapsed so a deliberate text
+      // selection (copying a cell) or one elsewhere on the page is untouched.
+      try {
+        var sel = window.getSelection && window.getSelection();
+        if (sel && sel.rangeCount && sel.isCollapsed && sel.anchorNode && tb.contains(sel.anchorNode)) sel.removeAllRanges();
+      } catch (e) {}
       rows().forEach(function (tr) {
         tr.addEventListener('click', function (e) {
           // Tree: ▸/▾ caret toggles fold (mouse parity for Space). Stops

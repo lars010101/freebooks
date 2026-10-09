@@ -135,6 +135,11 @@ var partnersList = FB.list.create({
             payment_terms_days: d.payment_terms_days != null ? d.payment_terms_days : 30,
             default_expense_account: d.default_expense_account || null,
             default_ap_account: d.default_ap_account || null,
+            // partner.upsert rewrites every column: omitting the role flags
+            // made it default is_vendor→true / is_customer→false, silently
+            // flipping a customer-only partner into a vendor on toggle.
+            is_vendor: d.is_vendor !== false,
+            is_customer: d.is_customer === true,
             is_active: d.is_active === false };
           fetch('/api/action', { method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ action:'partner.upsert', companyId: COMPANY, partner: v }) })

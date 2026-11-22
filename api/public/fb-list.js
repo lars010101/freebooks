@@ -62,6 +62,10 @@
  *   same(b, s) → true when buffer matches saved row (dirty dropped)
  *   validate(d)→ error string | null
  *   editable(d)→ bool (default true); false = row never enters edit (ECB rates)
+ *   openReadOnly(d) → optional: Enter on a read-only row (editable false) calls
+ *              this instead of the default (tree: fold/unfold; flat: no-op).
+ *              Bills uses it to open a posted bill's full page (#299); Space
+ *              still folds. Tree: d is the parent row.
  *   deletable(d)→ bool (default true); false = x is a no-op on that row
  *   rowStyle(d)→ cssText for the <tr> (e.g. opacity for ECB rows)
  *   firstField(isNew) → field to focus when entering edit
@@ -1544,11 +1548,14 @@
       var d = idx >= 0 ? merged()[idx] : null;
       if (cfg.tree) {
         var res = d ? billParentOf(d) : null;
-        if (res && cfg.editable && !cfg.editable(res.parent)) { toggleFold(res.parent); return; }
+        if (res && cfg.editable && !cfg.editable(res.parent)) {
+          if (cfg.openReadOnly) { cfg.openReadOnly(res.parent); return; }
+          toggleFold(res.parent); return;
+        }
         enterEdit(idx >= 0 ? idx : 0);
         return;
       }
-      if (d && cfg.editable && !cfg.editable(d)) return;
+      if (d && cfg.editable && !cfg.editable(d)) { if (cfg.openReadOnly) cfg.openReadOnly(d); return; }
       enterEdit(idx >= 0 ? idx : 0);
     }
     function advanceField() {

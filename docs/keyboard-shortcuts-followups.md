@@ -7,13 +7,14 @@ superseded its approach. Items below were re-checked against the code on
 that date. Only the still-live items are kept; each is tracked as a GitHub
 issue (see headings).
 
-## 1. Payables `I` key — still an open question (#299)
-
-`payables-bills.js` still binds `I` (NORMAL mode, "open in full editor",
-`paletteEligible: false`). Whether it is still needed now that `i`/`Enter`
-are consolidated was deferred and never investigated.
+No open items remain (2026-11-22).
 
 ## Resolved since the original notes (kept for the record)
+
+- **Payables `I` key (#299)** — retired 2026-11-22 (magnus). Drafts edit
+  inline with `i`/Enter; on a posted/paid/void bill Enter now opens the full
+  page (`openReadOnly`, `payables-bills.js`), which `I` had been the only
+  keyboard route to. See `keyboard-ux-spec.md` §0.
 
 - **Mouse "write" chip bypassing the draft-save kill** — moot: the Draft
   toggle (`~`, default off) made draft-vs-post an explicit choice

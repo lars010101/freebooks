@@ -219,7 +219,7 @@ No new LLM settings — reuses `llm_endpoint_url` / `llm_api_key` / `llm_model` 
 3. ~~Exact existing tolerance constant/setting name~~ — **Resolved:** `companySettings.bill_extraction_tolerance` (default `'0.50'`), confirmed shared verbatim with `_validateJournalExtraction()`.
 4. **Source-attachment persistence (§4.2) — confirmed still unfixed on this second pass.** Recommendation stands: wire `replaceDraftId` through to `bill.create` using the attachment's existing `entityId`, rather than adding a new reference column — more consistent with how underlag binding works elsewhere in this codebase. Not yet implemented as of this validation.
 5. ~~Underlag binding — mechanism exists~~ — superseded by Open Question 4 above; the mechanism (`replaceDraftId`) is confirmed to exist, only its use in `processBill()` remains outstanding.
-6. **`_extraction_meta` built from a simple evidence object, not the retained prompt/context snapshot, in the `partner.propose` trigger (§11.1).** Minor, lower priority than the above — the `evidence` payload `_maybeProposePartner()` receives (`agent-loop.js` lines 1291–1307) is a simple object rather than pulling from `_extraction_meta` as this spec describes. Worth a follow-up but not blocking.
+6. ~~**`_extraction_meta` built from a simple evidence object, not the retained prompt/context snapshot, in the `partner.propose` trigger (§11.1).**~~ — **Closed, not backlog (verified against code 2026-10-12):** the `bill_extraction` evidence item passed to `_maybeProposePartner()` in `agent-loop.js` (~L1388) now takes `model`, `confidence`, `flags` and `raw_model_output` from `bill._extraction_meta`. Any remaining gap versus the retained prompt/context snapshot is cosmetic; no issue filed.
 
 ## 11. Resolved decisions
 

@@ -586,6 +586,8 @@ Also needs: a `wht_tracking` on/off toggle in the relevant settings page, mirror
 
 ## 8. What is explicitly out of scope
 
+> **Standing note (2026-10-12): nothing in this section is backlog.** These are deliberate scope boundaries, to be built only if a concrete need appears — do not list them as open work or file issues for them without an actual user request.
+
 - **Any remittance/filing tracking** — §0.3. Settling the WHT payable account is a manual journal entry, same as any other liability, forever (unless a future spec decides otherwise).
 - **A stated/override mechanism for WHT** — §0.5.
 - **Gross-basis (vs. net-basis) computation per code** — §0.4. Every code uses the same base as VAT for now.

@@ -1,0 +1,1151 @@
+-- freeBooks — DuckDB Schema
+-- Ported from BigQuery (finance dataset)
+-- All tables use company_id for multi-company isolation
+
+-- =============================================================================
+-- companies
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS companies (
+  company_id         VARCHAR   NOT NULL,
+  company_name       VARCHAR   NOT NULL,
+  jurisdiction       VARCHAR   NOT NULL,
+  currency           VARCHAR   NOT NULL,
+  reporting_standard VARCHAR   NOT NULL,
+  accounting_method  VARCHAR   NOT NULL DEFAULT 'accrual',
+  vat_registered     BOOLEAN   NOT NULL DEFAULT FALSE,
+  tax_id             VARCHAR,
+  fy_start           DATE      NOT NULL,
+  fy_end             DATE      NOT NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- accounts (Chart of Accounts)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS accounts (
+  company_id      VARCHAR   NOT NULL,
+  account_code    VARCHAR   NOT NULL,
+  account_name    VARCHAR   NOT NULL,
+  account_type    VARCHAR   NOT NULL,
+  account_subtype VARCHAR,
+  cf_category     VARCHAR,
+  is_active       BOOLEAN   NOT NULL DEFAULT TRUE,
+  effective_from  DATE      NOT NULL,
+  effective_to    DATE,
+  created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- journal_entries
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journal_entries (
+  company_id      VARCHAR          NOT NULL,
+  entry_id        VARCHAR          NOT NULL UNIQUE,
+  batch_id        VARCHAR          NOT NULL,
+  date            DATE             NOT NULL,
+  account_code    VARCHAR          NOT NULL,
+  debit           DECIMAL(18,4)    NOT NULL DEFAULT 0,
+  credit          DECIMAL(18,4)    NOT NULL DEFAULT 0,
+  currency        VARCHAR          NOT NULL,
+  fx_rate         DECIMAL(18,6)    NOT NULL DEFAULT 1.0,
+  debit_home      DECIMAL(18,4)    NOT NULL DEFAULT 0,
+  credit_home     DECIMAL(18,4)    NOT NULL DEFAULT 0,
+  vat_code        VARCHAR,
+  vat_amount      DECIMAL(18,4)    DEFAULT 0,
+  vat_amount_home DECIMAL(18,4)    DEFAULT 0,
+  net_amount      DECIMAL(18,4)    DEFAULT 0,
+  net_amount_home DECIMAL(18,4)    DEFAULT 0,
+  description     VARCHAR,
+  reference       VARCHAR,
+  source          VARCHAR          NOT NULL,
+  cost_center     VARCHAR,
+  profit_center   VARCHAR,
+  reverses        VARCHAR,
+  reversed_by     VARCHAR,
+  bill_id         VARCHAR,
+  created_by      VARCHAR,
+  created_at      TIMESTAMP        NOT NULL DEFAULT NOW()
+);
+
+-- MIGRATION: explicit journal linkage on journal_entries.
+-- Makes the originating journal queryable via a real join rather than parsing
+-- the reference string prefix. Legacy rows stay null (resolveDefaultJournalId
+-- treats null as MISC).
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS journal_id VARCHAR;
+
+-- =============================================================================
+-- vat_codes
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS vat_codes (
+  company_id         VARCHAR        NOT NULL,
+  vat_code           VARCHAR        NOT NULL,
+  description        VARCHAR        NOT NULL,
+  rate               DECIMAL(8,4)   NOT NULL,
+  vat_account_input  VARCHAR,
+  vat_account_output VARCHAR,
+  report_box         VARCHAR,
+  is_reverse_charge  BOOLEAN        NOT NULL DEFAULT FALSE,
+  is_active          BOOLEAN        NOT NULL DEFAULT TRUE,
+  effective_from     DATE           NOT NULL,
+  effective_to       DATE
+);
+
+-- =============================================================================
+-- bank_mappings
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS bank_mappings (
+  company_id           VARCHAR  NOT NULL,
+  mapping_id           VARCHAR  NOT NULL,
+  pattern              VARCHAR  NOT NULL,
+  match_type           VARCHAR  NOT NULL,
+  debit_account        VARCHAR  NOT NULL,
+  credit_account       VARCHAR  NOT NULL,
+  description_override VARCHAR,
+  vat_code             VARCHAR,
+  cost_center          VARCHAR,
+  profit_center        VARCHAR,
+  priority             INTEGER  NOT NULL DEFAULT 100,
+  is_active            BOOLEAN  NOT NULL DEFAULT TRUE
+);
+
+-- =============================================================================
+-- mapping_suggestions (bank-matching-spec §10.2)
+-- Agent-proposed bank-mapping rules awaiting human approval. Same lifecycle as
+-- journal_proposals: proposed → approved | rejected. "Approve" writes to
+-- bank_mappings (human-attributed). The agent never writes to bank_mappings.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS mapping_suggestions (
+  company_id           VARCHAR NOT NULL,
+  suggestion_id       VARCHAR NOT NULL UNIQUE,
+  bank_account        VARCHAR,
+  description_pattern VARCHAR NOT NULL,
+  suggested_account   VARCHAR NOT NULL,
+  suggested_vat_code  VARCHAR,
+  suggested_dimensions VARCHAR,   -- JSON
+  evidence            VARCHAR,    -- JSON
+  source_proposal_id  VARCHAR,
+  status              VARCHAR NOT NULL DEFAULT 'proposed',
+  created_by          VARCHAR NOT NULL,
+  reviewed_by         VARCHAR,
+  reviewed_at         TIMESTAMP,
+  created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mapping_suggestions_company_status
+  ON mapping_suggestions(company_id, status);
+
+-- =============================================================================
+-- matching_history (bank-matching-spec §10.3)
+-- Learning store: every proposal's outcome (approved_unedited/approved_edited/
+-- rejected) across all tiers. Never pruned (BFL 7 kap retention). Feeds
+-- calibration counters (§6.2) and rule crystallization/retirement (§10.5).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS matching_history (
+  id                   VARCHAR NOT NULL DEFAULT (uuid()),
+  company_id           VARCHAR NOT NULL,
+  bank_account         VARCHAR,
+  description_pattern  VARCHAR,
+  counterparty         VARCHAR,
+  amount               DOUBLE,
+  proposed_dimensions  VARCHAR,   -- JSON
+  approved_dimensions  VARCHAR,   -- JSON
+  source_type          VARCHAR NOT NULL,  -- learned_rule | open_item | master_data | llm_semantic
+  confidence           VARCHAR,   -- JSON
+  evidence             VARCHAR,   -- JSON
+  outcome              VARCHAR NOT NULL,  -- approved_unedited | approved_edited | rejected
+  created_at           TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_matching_history_company_pattern
+  ON matching_history(company_id, description_pattern);
+
+-- =============================================================================
+-- input_rejections (bank-matching-spec §11.2)
+-- Statement lines with missing critical data (missing date, missing amount,
+-- missing description AND counterparty). One row per statement with rejected
+-- lines — the agent creates it, the inbox aggregates it. Verbs: r (retry),
+-- d (discard). Drill-through to individual rejected lines.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS input_rejections (
+  rejection_id      VARCHAR NOT NULL DEFAULT (uuid()),
+  company_id        VARCHAR NOT NULL,
+  statement_id      VARCHAR NOT NULL,        -- the attachment/entity id of the statement
+  statement_date    DATE,
+  rejected_lines    VARCHAR NOT NULL,        -- JSON array of { line, reason, raw }
+  status            VARCHAR NOT NULL DEFAULT 'open',  -- open | retried | discarded
+  created_by        VARCHAR NOT NULL,        -- agent email
+  created_at        TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_input_rejections_company_status
+  ON input_rejections(company_id, status);
+
+-- =============================================================================
+-- settings
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS settings (
+  company_id VARCHAR   NOT NULL,
+  key        VARCHAR   NOT NULL,
+  value      VARCHAR,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- user_permissions
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS user_permissions (
+  email      VARCHAR   NOT NULL,
+  company_id VARCHAR   NOT NULL,
+  role       VARCHAR   NOT NULL,
+  granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  granted_by VARCHAR
+);
+
+-- =============================================================================
+-- bills (Accounts Payable)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS bills (
+  company_id      VARCHAR        NOT NULL,
+  bill_id         VARCHAR        NOT NULL UNIQUE,
+  partner_name    VARCHAR        NOT NULL,
+  vendor_ref      VARCHAR,
+  date            DATE           NOT NULL,
+  due_date        DATE           NOT NULL,
+  amount          DECIMAL(18,4)  NOT NULL,
+  currency        VARCHAR        NOT NULL,
+  fx_rate         DECIMAL(18,6)  NOT NULL DEFAULT 1.0,
+  amount_home     DECIMAL(18,4)  NOT NULL,
+  expense_account VARCHAR        NOT NULL,
+  ap_account      VARCHAR        NOT NULL,
+  vat_code        VARCHAR,
+  vat_amount      DECIMAL(18,4)  DEFAULT 0,
+  net_amount      DECIMAL(18,4)  DEFAULT 0,
+  cost_center     VARCHAR,
+  profit_center   VARCHAR,
+  status          VARCHAR        NOT NULL DEFAULT 'draft',
+  amount_paid     DECIMAL(18,4)  NOT NULL DEFAULT 0,
+  description     VARCHAR,
+  created_by      VARCHAR,
+  created_at      TIMESTAMP      NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- payments — unified AP+AR subledger (was bill_payments; renamed in prep for
+-- two-way payments). Only direction = 'out' is populated until AR/invoicing
+-- ships — bill_id/invoice_id are mutually exclusive by direction, not by a DB
+-- constraint (no invoices table exists yet to FK against).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS payments (
+  company_id VARCHAR        NOT NULL,
+  payment_id VARCHAR        NOT NULL,
+  direction  VARCHAR        NOT NULL DEFAULT 'out', -- 'out' (pay a bill, AP) | 'in' (receive against an invoice, AR — not yet built)
+  bill_id    VARCHAR,                                -- set when direction = 'out'
+  invoice_id VARCHAR,                                -- set when direction = 'in' (AR, not yet built — no FK until then)
+  batch_id   VARCHAR        NOT NULL,
+  amount     DECIMAL(18,4)  NOT NULL,
+  amount_foreign DECIMAL(18,4),
+  date       DATE           NOT NULL,
+  method     VARCHAR        NOT NULL,
+  reference  VARCHAR,
+  voided_at  TIMESTAMP,
+  voided_by  VARCHAR,
+  created_at TIMESTAMP      NOT NULL DEFAULT NOW()
+);
+
+-- MIGRATION: bill_id was NOT NULL under the old bill-only schema — relax it
+-- so a future direction = 'in' row (no bill_id) is legal. Errors harmlessly
+-- if already relaxed.
+ALTER TABLE payments ALTER COLUMN bill_id DROP NOT NULL;
+
+-- =============================================================================
+-- fx_rates
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS fx_rates (
+  date          DATE           NOT NULL,
+  from_currency VARCHAR        NOT NULL,
+  to_currency   VARCHAR        NOT NULL,
+  rate          DECIMAL(18,6)  NOT NULL,
+  source        VARCHAR        NOT NULL,
+  fetched_at    TIMESTAMP      NOT NULL DEFAULT NOW()
+);
+
+-- Indexes for fx_rates — threshold spec §7: cover the OR (from_currency/to_currency) + date range
+CREATE INDEX IF NOT EXISTS idx_fx_rates_from_date ON fx_rates(from_currency, date);
+CREATE INDEX IF NOT EXISTS idx_fx_rates_to_date   ON fx_rates(to_currency, date);
+
+-- fx-tracked-currency-scoping-spec §8.8: getExposedCurrencies filters on
+-- company_id (equality) + date (range) + currency (equality) and joins on
+-- account_code.  This composite index covers the scanner (every 6h), the
+-- currency picker (interactive), and revaluation preview.  Confirm with
+-- EXPLAIN against real data — DuckDB's columnar engine doesn't necessarily
+-- behave like a traditional B-tree index would suggest.
+CREATE INDEX IF NOT EXISTS idx_journal_entries_company_currency_date
+  ON journal_entries(company_id, currency, date);
+
+-- =============================================================================
+-- centers (Cost/Profit Centers)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS centers (
+  company_id  VARCHAR  NOT NULL,
+  center_id   VARCHAR  NOT NULL,
+  center_type VARCHAR  NOT NULL,
+  name        VARCHAR  NOT NULL,
+  is_active   BOOLEAN  NOT NULL DEFAULT TRUE
+);
+
+-- =============================================================================
+-- MIGRATION: cost→profit center derivation
+-- For Cost centers only, links to the Profit center that absorbs their spend.
+-- This is the derivation source for journal_entries.profit_center /
+-- bills.profit_center at posting time. Backward-compatible: existing centers
+-- get profit_center_id = NULL and are backfilled via the one-time
+-- reconciliation in §5 before derivation goes live (§4).
+-- =============================================================================
+ALTER TABLE centers ADD COLUMN IF NOT EXISTS profit_center_id VARCHAR;
+
+CREATE INDEX IF NOT EXISTS idx_centers_company_type ON centers(company_id, center_type);
+
+-- =============================================================================
+-- audit_log
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS audit_log (
+  company_id  VARCHAR   NOT NULL,
+  log_id      VARCHAR   NOT NULL,
+  table_name  VARCHAR   NOT NULL,
+  record_id   VARCHAR   NOT NULL,
+  action      VARCHAR   NOT NULL,
+  field_name  VARCHAR,
+  old_value   VARCHAR,
+  new_value   VARCHAR,
+  changed_by  VARCHAR   NOT NULL,
+  changed_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- A1 (§2.4): actor attribution on every audit row. actor_type disambiguates
+-- human vs agent (comes from the DB role, never asserted); request_id
+-- correlates one agent run across calls (body.requestId or X-Request-Id).
+-- changed_by stays the actor email (provenance continuity).
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_type VARCHAR DEFAULT 'human';
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS request_id VARCHAR;
+
+-- =============================================================================
+-- journals
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journals (
+  journal_id VARCHAR NOT NULL,
+  company_id VARCHAR NOT NULL,
+  code       VARCHAR NOT NULL,
+  name       VARCHAR NOT NULL,
+  active     BOOLEAN NOT NULL DEFAULT true,
+  PRIMARY KEY (journal_id),
+  UNIQUE (company_id, code)
+);
+
+-- =============================================================================
+-- journal_sequences
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journal_sequences (
+  company_id VARCHAR NOT NULL,
+  journal_id VARCHAR NOT NULL,
+  year       INTEGER NOT NULL,
+  last_seq   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (company_id, journal_id, year)
+);
+
+-- MIGRATION: backfill journal_id on historical journal_entries rows from the
+-- reference prefix. Pre-refactor references follow CODE/YEAR/NNNNN — the code
+-- segment maps to journals.code. Rows with no reference (pre-2026-08-02
+-- null-reference era) stay NULL — they're journal-less by original design.
+UPDATE journal_entries e
+SET journal_id = (
+  SELECT j.journal_id FROM journals j
+  WHERE j.company_id = e.company_id
+    AND j.code = split_part(e.reference, '/', 1)
+)
+WHERE e.journal_id IS NULL
+  AND e.reference LIKE '%/%/%';
+
+-- =============================================================================
+-- periods
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS periods (
+  company_id  VARCHAR   NOT NULL,
+  period_name VARCHAR   NOT NULL,
+  start_date  DATE      NOT NULL,
+  end_date    DATE      NOT NULL,
+  locked      BOOLEAN   DEFAULT FALSE,
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =============================================================================
+-- VIEWS
+-- =============================================================================
+
+-- Current company row. companies is append-versioned (api/src/index.js
+-- mergeCompanyRow: a settings edit INSERTs a fresh row, never UPDATEs in
+-- place), so any company whose settings have ever been edited has 2+ rows —
+-- reading the table directly returns whichever row the engine happens to
+-- pick, not necessarily the current one (found 2026-09-15 chasing an AP
+-- Control report that silently crashed on a bare, undeduplicated scalar
+-- subquery, then a batch of callers that showed a stale company name/
+-- currency, then callers that double-processed a company per scan cycle).
+-- Every caller that wants "this company's current settings" — not the full
+-- history — should read this view, not the companies table directly.
+-- Usage: SELECT * FROM v_companies_latest WHERE company_id = 'example_sg';
+CREATE OR REPLACE VIEW v_companies_latest AS
+SELECT company_id, company_name, jurisdiction, currency, reporting_standard,
+       accounting_method, vat_registered, tax_id, fy_start, fy_end, created_at
+FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY created_at DESC) AS rn
+  FROM companies
+) t
+WHERE rn = 1;
+
+-- Trial Balance
+-- Usage: SELECT * FROM v_trial_balance WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31';
+CREATE OR REPLACE VIEW v_trial_balance AS
+SELECT
+  je.company_id,
+  je.date,
+  a.account_code,
+  a.account_name,
+  a.account_type,
+  a.account_subtype,
+  SUM(je.debit)  AS total_debit,
+  SUM(je.credit) AS total_credit,
+  SUM(je.debit) - SUM(je.credit) AS net_balance
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.account_subtype;
+
+-- Profit & Loss
+-- Usage: SELECT * FROM v_pl WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31';
+CREATE OR REPLACE VIEW v_pl AS
+SELECT
+  je.company_id,
+  je.date,
+  a.account_code,
+  a.account_name,
+  a.account_type,
+  a.account_subtype,
+  -- Revenue: credit-normal (positive = credit balance)
+  -- Expense: debit-normal (positive = debit balance)
+  CASE
+    WHEN a.account_type = 'Revenue' THEN SUM(je.credit) - SUM(je.debit)
+    ELSE SUM(je.debit) - SUM(je.credit)
+  END AS amount
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+WHERE a.account_type IN ('Revenue', 'Expense')
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.account_subtype;
+
+-- Balance Sheet
+-- Usage: SELECT * FROM v_bs WHERE company_id = 'example_sg' AND date <= '2026-01-31';
+CREATE OR REPLACE VIEW v_bs AS
+SELECT
+  je.company_id,
+  je.date,
+  a.account_code,
+  a.account_name,
+  a.account_type,
+  a.account_subtype,
+  -- Assets: debit-normal. Liabilities/Equity: credit-normal
+  CASE
+    WHEN a.account_type = 'Asset' THEN SUM(je.debit) - SUM(je.credit)
+    ELSE SUM(je.credit) - SUM(je.debit)
+  END AS balance
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code
+WHERE a.account_type IN ('Asset', 'Liability', 'Equity')
+GROUP BY je.company_id, je.date, a.account_code, a.account_name, a.account_type, a.account_subtype;
+
+-- General Ledger
+-- Usage: SELECT * FROM v_gl WHERE company_id = 'example_sg' AND date BETWEEN '2025-02-01' AND '2026-01-31' ORDER BY account_code, date;
+CREATE OR REPLACE VIEW v_gl AS
+SELECT
+  je.company_id,
+  je.date,
+  je.batch_id,
+  je.account_code,
+  a.account_name,
+  je.description,
+  je.reference,
+  je.debit,
+  je.credit,
+  je.currency,
+  je.source
+FROM journal_entries je
+LEFT JOIN accounts a ON a.company_id = je.company_id AND a.account_code = je.account_code;
+
+-- =============================================================================
+-- reconciliations
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS reconciliations (
+  company_id   VARCHAR   NOT NULL,
+  batch_id     VARCHAR   NOT NULL,
+  account_code VARCHAR   NOT NULL,
+  cleared_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+  cleared_by   VARCHAR,
+  PRIMARY KEY (company_id, batch_id, account_code)
+);
+
+-- =============================================================================
+-- partners (unified master list for AP/AR — was vendors, migrated 2026-08).
+-- See partner-proposal-spec §7.1. The one-time vendors→partners rename
+-- migration (db/init.js applyPartnersMigration()) has been removed — every
+-- database has completed it, and a fresh database gets this table directly.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS partners (
+  partner_id             VARCHAR PRIMARY KEY DEFAULT (uuid()),
+  company_id             VARCHAR NOT NULL,
+  name                   VARCHAR NOT NULL,
+  default_currency       VARCHAR,
+  payment_terms_days     INTEGER DEFAULT 30,
+  tax_id                 VARCHAR,
+  notes                  VARCHAR,
+  is_active              BOOLEAN DEFAULT TRUE,
+  default_expense_account VARCHAR,
+  default_ap_account     VARCHAR,
+  is_vendor              BOOLEAN DEFAULT TRUE,
+  is_customer            BOOLEAN DEFAULT FALSE,
+  default_revenue_account VARCHAR,
+  default_ar_account     VARCHAR,
+  created_at             TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_partners_company ON partners(company_id);
+CREATE INDEX IF NOT EXISTS idx_partners_name ON partners(name);
+CREATE INDEX IF NOT EXISTS idx_partners_vendor ON partners(company_id, is_vendor);
+CREATE INDEX IF NOT EXISTS idx_partners_customer ON partners(company_id, is_customer);
+
+-- MIGRATION: add account_subtype, drop legacy bs_category and pl_category
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS account_subtype VARCHAR;
+ALTER TABLE accounts DROP COLUMN IF EXISTS bs_category;
+ALTER TABLE accounts DROP COLUMN IF EXISTS pl_category;
+
+-- MIGRATION: account-level Default flag (settings-ux-spec §7 item 1).
+-- Replaces the legacy default_ap_account / default_expense_account settings
+-- keys: the Chart of Accounts now carries a default_role column on each
+-- account (NULL = not a default; 'AP' = default AP account; 'Expense' =
+-- default expense account). Single-holder is enforced server-side in the
+-- coa.upsert write path (see api/src/index.js). Backfill below migrates
+-- existing companies that still carry the legacy settings rows — backfill
+-- only (WHERE default_role IS NULL) so accounts already flagged via the COA
+-- UI are never clobbered on a re-run. Expense is applied first so that when
+-- the same account is referenced by BOTH legacy keys, the AP UPDATE runs
+-- last and wins (last-writer semantics).
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS default_role VARCHAR;
+
+UPDATE accounts
+SET default_role = 'Expense'
+WHERE default_role IS NULL
+  AND (company_id, account_code) IN (
+    SELECT s.company_id, s.value
+    FROM settings s
+    WHERE s.key = 'default_expense_account'
+      AND s.value IS NOT NULL AND TRIM(s.value) <> ''
+  );
+
+UPDATE accounts
+SET default_role = 'AP'
+WHERE default_role IS NULL
+  AND (company_id, account_code) IN (
+    SELECT s.company_id, s.value
+    FROM settings s
+    WHERE s.key = 'default_ap_account'
+      AND s.value IS NOT NULL AND TRIM(s.value) <> ''
+  );
+
+-- Backfill: migrate legacy fx_gain_loss_account setting to default_role.
+UPDATE accounts
+SET default_role = 'FX Gain/Loss'
+WHERE default_role IS NULL
+  AND (company_id, account_code) IN (
+    SELECT s.company_id, s.value
+    FROM settings s
+    WHERE s.key = 'fx_gain_loss_account'
+      AND s.value IS NOT NULL
+      AND s.value <> ''
+  );
+
+-- MIGRATION: partner default expense and AP accounts (was vendor columns)
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_expense_account VARCHAR;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS default_ap_account VARCHAR;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS draft_lines TEXT DEFAULT NULL;
+
+-- MIGRATION (P1-9): payment subledger extensions — manual payments carry an
+-- optional reference; foreign-currency settlements record the foreign amount
+-- for exact unwind; voids mark the row instead of deleting (append-only).
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS amount_foreign DECIMAL(18,4);
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS reference VARCHAR;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS voided_at TIMESTAMP;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS voided_by VARCHAR;
+
+-- MIGRATION: two-way-payments-prep — direction + invoice_id on an
+-- already-existing (pre-rename) table. No-ops on a fresh DB, where the
+-- CREATE TABLE above already includes both. DuckDB rejects a NOT NULL
+-- constraint combined with ADD COLUMN ("Adding columns with constraints
+-- not yet supported") — add it plain (DEFAULT alone still backfills
+-- existing rows to 'out'), NOT NULL enforcement stays app-level here,
+-- same as this table's other unconstrained status-ish columns (method).
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS direction VARCHAR DEFAULT 'out';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id VARCHAR;
+
+-- MIGRATION: VAT tolerance settings
+-- Seeded at company creation in api/src/setup.js. Backfill here for companies
+-- created before this migration. vat_tolerance = flat amount in home currency
+-- (default 0.50); vat_tolerance_pct = percentage of computed VAT (0.01 = 1%).
+-- Override is accepted when |stated - computed| <= max(flat, pct * computed).
+-- v_companies_latest, not the raw table (2026-09-15 — found a company with a
+-- duplicate settings row per key here): companies is append-versioned (a
+-- settings edit inserts a fresh row rather than updating in place), so a
+-- company renamed/edited before ever getting this backfill would otherwise
+-- produce one INSERT per historical companies row, all passing the same
+-- NOT EXISTS guard in the same statement (it's evaluated against `settings`
+-- as it stood before this statement ran, not row-by-row as rows land).
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'vat_tolerance', '0.50', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance');
+
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'vat_tolerance_pct', '0.01', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'vat_tolerance_pct');
+
+-- MIGRATION: write-off threshold settings (2026-09-15).
+-- Seeded at company creation in api/src/setup.js; backfill here for
+-- companies created before this migration. Same max(flat, pct * bill.amount)
+-- materiality shape as vat_tolerance above — see bill.write_off's own
+-- comment (api/src/bills.js) for the full rationale.
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'write_off_threshold', '1.00', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'write_off_threshold');
+
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'write_off_threshold_pct', '0.01', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.company_id = c.company_id AND s.key = 'write_off_threshold_pct');
+
+-- MIGRATION: center derivation rollout gate (see spec §2/§3/§4/§6a/§7).
+-- Seeded false so deploying the derivation code (§4) is inert on its own —
+-- nothing in the posting paths runs differently until an owner explicitly
+-- flips this via settings.save. Same seed pattern as vat_tolerance above.
+INSERT INTO settings (company_id, key, value, updated_at)
+SELECT c.company_id, 'center_derivation_enabled', 'false', NOW()
+FROM v_companies_latest c
+WHERE NOT EXISTS (
+  SELECT 1 FROM settings s
+  WHERE s.company_id = c.company_id AND s.key = 'center_derivation_enabled'
+);
+
+-- =============================================================================
+-- attachments
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS attachments (
+  attachment_id  VARCHAR    NOT NULL,
+  company_id     VARCHAR    NOT NULL,
+  entity_type    VARCHAR    NOT NULL,
+  entity_id      VARCHAR    NOT NULL,
+  filename       VARCHAR    NOT NULL,
+  content_type   VARCHAR    NOT NULL,
+  file_size      INTEGER    NOT NULL,
+  storage_path   VARCHAR    NOT NULL,
+  uploaded_by    VARCHAR,
+  uploaded_at    TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_entity ON attachments(company_id, entity_type, entity_id);
+
+-- A4 (§4.7): sha256 dedupe per company. Identical hash within a company reuses
+-- the stored blob path (skips the blob write) and inserts a new metadata row
+-- only — the hash doubles as integrity evidence. Idempotent house-style
+-- evolution (mirrors the audit_log.actor_type / accounts.default_role pattern
+-- above): ADD COLUMN IF NOT EXISTS so fresh + existing DBs converge on boot.
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS sha256 VARCHAR;
+CREATE INDEX IF NOT EXISTS idx_attachments_company_sha256 ON attachments(company_id, sha256);
+
+-- =============================================================================
+-- reminders (calendar-reminders-documents-spec.md §4.3)
+-- =============================================================================
+-- One table for both row sources: system-imported (source='system', reminder_id
+-- = the collision-free filingKey, seeded once from the jurisdiction pack on
+-- first discovery — see periods-page-service.js listReminders) and user-added
+-- (source='user', reminder_id = a generated uuid, no computed default).
+-- due_date is nullable: not every jurisdiction-pack descriptor has a
+-- computable due date (e.g. db/jurisdictions/SG/filings/annual-report.json
+-- has no "due" rule at all) — computeDueDate already returned null for
+-- these before this table existed, this just stops persisting that as a
+-- constraint violation. The UI and reminder-scanner.js both already treat
+-- a null due date as "no deadline to show/alert on," not an error.
+CREATE TABLE IF NOT EXISTS reminders (
+  reminder_id  VARCHAR    NOT NULL,
+  company_id   VARCHAR    NOT NULL,
+  source       VARCHAR    NOT NULL,
+  label        VARCHAR    NOT NULL,
+  authority    VARCHAR,
+  due_date     DATE,
+  period_id    VARCHAR,
+  done         BOOLEAN    NOT NULL DEFAULT false,
+  created_at   TIMESTAMP  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
+
+-- MIGRATION: an environment that already boot-applied this schema before
+-- due_date was corrected to nullable (below) has a `reminders` table stuck
+-- with the old constraint — CREATE TABLE IF NOT EXISTS never retroactively
+-- loosens it. DuckDB refuses ALTER COLUMN while an index depends on the
+-- table (verified directly), so the index has to come off first and back on
+-- after; each statement here is independently idempotent (a second full
+-- run is a harmless no-op, verified), so this converges any such database
+-- on the next boot without needing to know which state it started from.
+DROP INDEX IF EXISTS idx_reminders_company;
+ALTER TABLE reminders ALTER COLUMN due_date DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reminders_company ON reminders(company_id);
+
+-- calendar-reminders-documents-spec.md §5.3: Documents page columns for
+-- standalone uploads (system-linked rows derive Type/Period from their
+-- entity instead). Same idempotent-migration style as sha256 above.
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS doc_type VARCHAR;
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS period_id VARCHAR;
+
+-- calendar-reminders-documents-spec.md §5.5: the attachment-integrity
+-- scanner's missing-file flag. Same idempotent-migration style as above.
+ALTER TABLE attachments ADD COLUMN IF NOT EXISTS missing_since TIMESTAMP;
+
+-- =============================================================================
+-- orphaned_files (calendar-reminders-documents-spec.md §5.5)
+-- =============================================================================
+-- Files found under ATTACHMENTS_ROOT with no matching attachments.storage_path
+-- row, raised by the attachment-integrity scanner. company_id is parsed from
+-- the path's leading segment (attachments.js storeAttachment always writes
+-- `${companyId}/${entityType}/${entityId}/...`); nullable only for a file
+-- placed under the root by hand, outside that convention.
+CREATE TABLE IF NOT EXISTS orphaned_files (
+  orphan_id     VARCHAR    NOT NULL,
+  company_id    VARCHAR,
+  path          VARCHAR    NOT NULL,
+  discovered_at TIMESTAMP  NOT NULL DEFAULT NOW(),
+  resolved_at   TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_orphaned_files_company ON orphaned_files(company_id);
+
+-- =============================================================================
+-- idempotency_keys (P0-1: safe retries for posting actions)
+-- One row per client-supplied Idempotency-Key; stores the first response so
+-- retries replay it instead of re-executing the posting action.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  key           TEXT PRIMARY KEY,
+  action        TEXT NOT NULL,
+  company_id    TEXT,
+  http_status   INTEGER,
+  response_json TEXT NOT NULL,
+  created_at    TIMESTAMP DEFAULT now()
+);
+
+-- Per-year tax & governance attributes (jurisdiction-pack: the pack manifest's
+-- taxAttributes/periodAttributes). JSON object keyed by attribute key.
+ALTER TABLE periods ADD COLUMN IF NOT EXISTS tax_attrs VARCHAR;
+
+-- =============================================================================
+-- events (A2 — §3.1: append-only event stream)
+-- Business facts at state transitions (journal posted, bill posted, payment
+-- recorded/voided, attachment uploaded, period locked/unlocked). This is the
+-- agent's input channel (poll via event.list) AND the audit narrative,
+-- distinct from the per-invocation dispatch audit (audit_log, P0-4).
+-- Append-only by construction: no UPDATE/DELETE path exists anywhere in the
+-- codebase. emitEvent() omits event_seq/event_id so the defaults fire.
+-- =============================================================================
+CREATE SEQUENCE IF NOT EXISTS events_seq START 1;
+CREATE TABLE IF NOT EXISTS events (
+  event_seq   BIGINT    NOT NULL DEFAULT nextval('events_seq'),
+  event_id    VARCHAR   NOT NULL DEFAULT (uuid()),
+  company_id  VARCHAR   NOT NULL,
+  event_type  VARCHAR   NOT NULL,    -- 'journal.posted', 'bill.payment.recorded', ...
+  entity_type VARCHAR   NOT NULL,    -- 'journal' | 'bill' | 'payment' | 'attachment' | 'period'
+  entity_id   VARCHAR   NOT NULL,
+  actor_type  VARCHAR   NOT NULL DEFAULT 'human',
+  actor_id    VARCHAR,               -- caller email (human or agent account)
+  request_id  VARCHAR,
+  payload     VARCHAR,               -- compact JSON snapshot, <= 4000 chars
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_events_company_seq ON events(company_id, event_seq);
+
+-- =============================================================================
+-- api_tokens (spec §2.6: per-actor API tokens)
+-- Bearer-token authentication for the action API. The token string is shown
+-- ONCE at creation; only its sha256 hex is stored. Identity is bound at
+-- creation (email); role still resolves from user_permissions per call.
+-- Boot-applied like every schema statement (IF NOT EXISTS — fresh + existing
+-- DBs converge).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS api_tokens (
+  token_id    VARCHAR   NOT NULL DEFAULT (uuid()) PRIMARY KEY,
+  token_hash  VARCHAR   NOT NULL UNIQUE,
+  label       VARCHAR   NOT NULL,
+  email       VARCHAR   NOT NULL,
+  created_at  TIMESTAMP DEFAULT now(),
+  created_by  VARCHAR,
+  revoked_at  TIMESTAMP,
+  revoked_by  VARCHAR
+);
+
+-- =============================================================================
+-- journal_proposals (A3j — §4.2: agent/human-proposed journal batches)
+-- The prepare/approve flow: an actor (typically an agent) proposes a journal
+-- batch; a human reviews and approves (which posts to journal_entries) or
+-- rejects (terminal, kept for audit). A proposed batch can NEVER reach
+-- journal_entries without a human approve (R5). `lines` stores the JSON array
+-- of enriched lines (the exact journal.post row shape), validated at propose
+-- time and re-validated at approve time. `batch_id` links the posted batch
+-- back to the proposal on approve.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS journal_proposals (
+  company_id   VARCHAR   NOT NULL,
+  proposal_id  VARCHAR   NOT NULL UNIQUE,
+  journal_id   VARCHAR,                -- optional series (journals table) → auto reference on post
+  date         DATE      NOT NULL,     -- MIN(line dates) — list display + ordering
+  reference    VARCHAR,
+  description  VARCHAR,
+  source       VARCHAR   NOT NULL DEFAULT 'agent',   -- 'agent' | 'human'
+  lines        VARCHAR   NOT NULL,    -- JSON array of enriched lines (journal.post row shape)
+  status       VARCHAR   NOT NULL DEFAULT 'proposed',   -- proposed | posted | rejected
+  batch_id     VARCHAR,                -- set on approve (links to journal_entries.batch_id)
+  created_by   VARCHAR   NOT NULL,
+  request_id   VARCHAR,
+  reviewed_by  VARCHAR,
+  reviewed_at  TIMESTAMP,
+  review_note  VARCHAR,
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_journal_proposals_company_status ON journal_proposals(company_id, status);
+
+-- MIGRATION: persist propose-time warnings (JSON array of warning strings).
+-- Computed by buildProposeWarnings at propose/upsert time; flows through to
+-- inbox.list for inline warning icons on the review surface.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS warnings VARCHAR;
+
+-- B4 (bank-matching-spec §1.1): bank transaction ID for dedup. A bank-provided
+-- transaction ID (or content hash) checked before the cascade runs to prevent
+-- duplicate proposals from feed redelivery.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS source_transaction_id VARCHAR;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- bank-mapping-suggestions-spec migrations
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- §1: persist match metadata from the agent loop so approve/reject can record
+-- outcomes in matching_history and fire crystallization (§3.1).  JSON blob:
+-- { tier, source_type, confidence, evidence, suggested_dimensions }
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS match_meta VARCHAR;
+
+-- MIGRATION: created_at rewrite bug on journal.propose upsert. An idempotent
+-- retry (same proposalId) used to overwrite created_at with now(), pushing the
+-- row back to the top of the inbox queue (ordered newest-first). updated_at
+-- captures the most recent touch instead; the inbox ORDER BY now sorts on
+-- updated_at so retried proposals do NOT jump the queue. Backfill existing
+-- rows so the new ORDER BY has a non-NULL sort key for every row.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
+UPDATE journal_proposals SET updated_at = created_at WHERE updated_at IS NULL;
+
+-- Correct & Resubmit: a rejected proposal is terminal (never edited, never
+-- deleted) — the fix is a fresh, human-entered journal_entries batch, posted
+-- the normal way (journal.post), not a revised proposal. This column is the
+-- audit link the other direction: which batch corrected this rejection, set
+-- by journal.proposal.correct once that batch posts. NULL = not yet corrected.
+ALTER TABLE journal_proposals ADD COLUMN IF NOT EXISTS corrected_by_batch_id VARCHAR;
+
+-- §5.2: amount direction condition on bank mapping rules.
+-- Values: 'positive' | 'negative' | 'any' (default 'any', backward-compatible).
+ALTER TABLE bank_mappings ADD COLUMN IF NOT EXISTS amount_sign VARCHAR DEFAULT 'any';
+
+-- §5.2 + §4.3: amount direction + match type on mapping suggestions so the
+-- approved rule inherits them.  suggested_match_type defaults to 'contains'
+-- (matching the previous hardcoded behavior).
+ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_amount_sign VARCHAR DEFAULT 'any';
+ALTER TABLE mapping_suggestions ADD COLUMN IF NOT EXISTS suggested_match_type VARCHAR DEFAULT 'contains';
+
+-- Inbox rebuild (2026-09-09): bill.draft.reject needs the same reviewer
+-- triple journal_proposals already has — a rejected bill draft is terminal
+-- (status='rejected') and stays in place for the record, same doctrine as
+-- journal.reject, instead of bill.draft.delete's hard DELETE.
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS review_note VARCHAR;
+
+-- =============================================================================
+-- bill_lines (P2-3 — Bill Lines Subledger)
+-- Expense line items for posted bills. Written alongside journal_entries in
+-- createBill; never mutated. Drafts stay as JSON in bills.draft_lines.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS bill_lines (
+  company_id      VARCHAR        NOT NULL,
+  bill_id         VARCHAR        NOT NULL,
+  line_number     INTEGER        NOT NULL,     -- 1-based ordinal within the bill
+  expense_account VARCHAR        NOT NULL,
+  amount          DECIMAL(18,4)  NOT NULL,     -- bill currency (tax-exclusive)
+  amount_home     DECIMAL(18,4)  NOT NULL,     -- home currency (amount × fx_rate)
+  vat_code        VARCHAR,
+  description     VARCHAR,
+  cost_center     VARCHAR,
+  profit_center   VARCHAR,
+  created_at      TIMESTAMP     NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, bill_id, line_number)
+);
+CREATE INDEX IF NOT EXISTS idx_bill_lines_company_account
+  ON bill_lines(company_id, expense_account);
+CREATE INDEX IF NOT EXISTS idx_bill_lines_bill
+  ON bill_lines(company_id, bill_id);
+
+-- =============================================================================
+-- notifications (fx-automation-spec §7 — minimal notifications subsystem)
+-- The topbar bell gets a backend. v1: fx-gap alerts from the scanner. Built
+-- once, reusable: future alerts (locked-period posts, failed imports) write
+-- to the same table. issue_key dedupes: one open row per key.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS notifications (
+  id          VARCHAR   NOT NULL DEFAULT (uuid()) PRIMARY KEY,
+  company_id  VARCHAR   NOT NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+  kind        VARCHAR   NOT NULL,    -- 'fx-gap', 'locked-period', ...
+  message     VARCHAR   NOT NULL,
+  issue_key   VARCHAR,                -- dedupe key, e.g. 'fx-gap:co:period'
+  read_at     TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_company_unread
+  ON notifications(company_id, read_at);
+-- link_url (inbox Class B reframe): optional click-through target for
+-- "go look at this" alerts (bill-due -> the bill's read-only detail page,
+-- reconciliation-alert -> the Bank Reconciliation tab). NULL for alerts
+-- with no natural destination (e.g. fx-gap).
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link_url VARCHAR;
+
+-- =============================================================================
+-- MIGRATION (P2-3): backfill bill_lines for existing posted/partial/paid/void
+-- bills from journal entries. Uses the same filtering as the old getBillLines
+-- (debit > 0, not AP account, not reversed). VAT/GST lines are included for
+-- pre-migration bills (cosmetic — accepted per ratified decision §12.1).
+-- Forward posts write clean expense-only rows.
+INSERT INTO bill_lines (company_id, bill_id, line_number, expense_account, amount, amount_home, vat_code, description, cost_center, profit_center, created_at)
+SELECT
+  je.company_id,
+  je.bill_id,
+  ROW_NUMBER() OVER (PARTITION BY je.bill_id ORDER BY je.created_at) AS line_number,
+  je.account_code,
+  je.debit,
+  je.debit_home,
+  je.vat_code,
+  je.description,
+  je.cost_center,
+  je.profit_center,
+  je.created_at
+FROM journal_entries je
+WHERE je.bill_id IS NOT NULL
+  AND je.debit > 0
+  AND je.account_code NOT IN (
+    SELECT b.ap_account FROM bills b WHERE b.company_id = je.company_id AND b.bill_id = je.bill_id
+  )
+  AND je.reversed_by IS NULL
+  AND je.bill_id IN (SELECT bill_id FROM bills WHERE status IN ('posted', 'partial', 'paid', 'void'))
+ON CONFLICT (company_id, bill_id, line_number) DO NOTHING;
+
+-- =============================================================================
+-- partner_proposals (partner-proposal-spec §3.2)
+-- Agent-proposed partners awaiting human approval. Same lifecycle as
+-- mapping_suggestions: proposed → approved | rejected. "Approve" writes to
+-- partners (human-attributed). The agent never writes to partners directly.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS partner_proposals (
+  company_id              VARCHAR NOT NULL,
+  proposal_id             VARCHAR NOT NULL UNIQUE,
+  name                    VARCHAR NOT NULL,
+  tax_id                  VARCHAR,
+  default_currency        VARCHAR,
+  payment_terms_days      INTEGER DEFAULT 30,
+  default_expense_account VARCHAR,
+  default_ap_account      VARCHAR,
+  suggested_vat_code      VARCHAR,
+  is_vendor               BOOLEAN DEFAULT TRUE,
+  is_customer             BOOLEAN DEFAULT FALSE,
+  evidence                JSON,
+  source_proposal_id      VARCHAR,
+  source_bill_id          VARCHAR,
+  source_description      VARCHAR,
+  status                  VARCHAR NOT NULL DEFAULT 'proposed',
+  created_by              VARCHAR NOT NULL,
+  reviewed_by             VARCHAR,
+  reviewed_at             TIMESTAMP,
+  created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_partner_proposals_company_status
+  ON partner_proposals(company_id, status);
+CREATE INDEX IF NOT EXISTS idx_partner_proposals_name
+  ON partner_proposals(company_id, name);
+
+-- =============================================================================
+-- partner_proposals.duplicate_warning (issue #226) — a fuzzy name match found
+-- at propose time no longer blocks creation (warn-not-block, R7 doctrine); it
+-- is instead carried on the proposal as {name, similarity, kind, partnerId}
+-- JSON so the Inbox review UI can flag it, leaving the approve/reject/alias
+-- decision to the human reviewer. NULL when no fuzzy candidate was found.
+-- partnerId is only present when kind='partner' (an existing partner row) —
+-- kind='proposal' (another pending proposal) has no partner_id to alias to
+-- yet. Added 2026-09-09 alongside aliased_to_partner_id below (older rows
+-- pre-date it and simply have no partnerId in their stored JSON).
+-- =============================================================================
+ALTER TABLE partner_proposals ADD COLUMN IF NOT EXISTS duplicate_warning JSON;
+
+-- =============================================================================
+-- partner_proposals: alias/merge resolution (2026-09-09) — a proposal can now
+-- be resolved as "this is the same partner as an existing one" instead of
+-- only approve (create new) or reject (discard). status='aliased' is a third
+-- terminal state; aliased_to_partner_id records which existing partner it
+-- was resolved to. See partner.proposal.alias (api/src/partners.js).
+-- =============================================================================
+ALTER TABLE partner_proposals ADD COLUMN IF NOT EXISTS aliased_to_partner_id VARCHAR;
+
+-- =============================================================================
+-- bills.partner_id — link to partners(partner_id) (bills-partner-fk-spec §1)
+-- Nullable, indexed, no enforced FK constraint (DuckDB limitation — see init.js
+-- applyUniqueConstraints comment). Referential integrity is app-level (§5 guard).
+-- =============================================================================
+ALTER TABLE bills ADD COLUMN IF NOT EXISTS partner_id VARCHAR;
+CREATE INDEX IF NOT EXISTS idx_bills_partner_id ON bills(partner_id);
+
+-- Index for threshold spec §7: covers company_id + date range used by bill.list COUNT/query
+CREATE INDEX IF NOT EXISTS idx_bills_company_date ON bills(company_id, date);
+
+
+-- =============================================================================
+-- 005: fx_tracking 'auto'/'off' → 'true'/'false' (boolean string)
+-- The setting was a collapsed tri-state that should have been boolean all
+-- along. Rename existing stored values; idempotent (no-ops on already-migrated
+-- or absent rows). Runs on every boot via schema boot-apply (db.js), so a
+-- server that pulls new code without re-running init.js still migrates.
+-- =============================================================================
+UPDATE settings SET value = 'true'  WHERE key = 'fx_tracking' AND value = 'auto';
+UPDATE settings SET value = 'false' WHERE key = 'fx_tracking' AND value = 'off';
+
+-- =============================================================================
+-- wht_codes (Withholding Tax)
+-- Mirrors vat_codes minus the input/output account split and is_reverse_charge
+-- flag — WHT has a single liability account (wht_account) and one rate. The
+-- optional report_box is preserved for jurisdictional filing boxes (e.g. IRAS
+-- form fields). bill_lines/bills/journal_entries gain wht_code + wht_amount
+-- columns so withholding can be tracked at the document and posting levels.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS wht_codes (
+  company_id     VARCHAR        NOT NULL,
+  wht_code       VARCHAR        NOT NULL,
+  description    VARCHAR        NOT NULL,
+  rate           DECIMAL(8,4)   NOT NULL,
+  wht_account    VARCHAR,
+  report_box     VARCHAR,
+  is_active      BOOLEAN        NOT NULL DEFAULT TRUE,
+  effective_from DATE           NOT NULL,
+  effective_to   DATE
+);
+
+ALTER TABLE bill_lines     ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
+ALTER TABLE bills          ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
+ALTER TABLE bills          ADD COLUMN IF NOT EXISTS wht_amount DECIMAL(18,4) DEFAULT 0;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_code VARCHAR;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_amount DECIMAL(18,4) DEFAULT 0;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS wht_amount_home DECIMAL(18,4) DEFAULT 0;
+
+-- =============================================================================
+-- bill_extraction_meta (bill-extraction-spec §4.2)
+-- Side table keyed by bill_id — stores the full extraction audit trail: model
+-- used, confidence, flags, raw model output, and the exact prompt + context
+-- sent. Separated from bills (which is heavily-touched) to avoid bloating
+-- every SELECT. One row per draft bill created by extractBillData().
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS bill_extraction_meta (
+  bill_id               VARCHAR        NOT NULL,
+  company_id            VARCHAR        NOT NULL,
+  model                 VARCHAR,
+  confidence            VARCHAR,
+  flags                 VARCHAR,       -- JSON array of flag strings
+  raw_model_output      VARCHAR,       -- JSON — full LLM response
+  prompt_snapshot        VARCHAR,       -- JSON — system+user prompt, context sent
+  pending_vendor_proposal_id VARCHAR,  -- set when vendor_id is null (§11.1)
+  created_at            TIMESTAMP      NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bill_extraction_meta_company
+  ON bill_extraction_meta(company_id);
+CREATE INDEX IF NOT EXISTS idx_bill_extraction_meta_bill
+  ON bill_extraction_meta(bill_id);
+
+-- =============================================================================
+-- Chat with AI (docs/chat-with-ai-spec.md)
+-- =============================================================================
+
+-- Conversation history. Company-scoped, not per-user (single-operator
+-- assumption, matches the Inbox's own company-wide framing — spec §5).
+CREATE TABLE IF NOT EXISTS chat_messages (
+  company_id    VARCHAR   NOT NULL,
+  message_id    VARCHAR   NOT NULL UNIQUE,
+  role          VARCHAR   NOT NULL,       -- 'user' | 'assistant'
+  content       VARCHAR   NOT NULL,
+  proposal_ref  VARCHAR,                  -- proposal_id or bill_id, when this message drafted one
+  created_by    VARCHAR,
+  created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_company ON chat_messages(company_id, created_at);
+
+-- Working state for a turn paused on a pending permission decision (spec
+-- §2b). Metadata only, deliberately — no fetched data is ever persisted
+-- here (spec §7 review fix), so an abandoned turn stays cheap regardless of
+-- how large a category's preview was. Swept on a short TTL (chat.js
+-- gcPendingTurns) since nothing ledger-relevant is at stake.
+CREATE TABLE IF NOT EXISTS chat_pending_turns (
+  company_id           VARCHAR   NOT NULL,
+  turn_id              VARCHAR   NOT NULL UNIQUE,
+  user_message         VARCHAR   NOT NULL,
+  pending_categories    VARCHAR   NOT NULL,             -- JSON array of category names
+  resolved_categories   VARCHAR   NOT NULL DEFAULT '{}', -- JSON: category -> {decision, aliased}
+  created_at           TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_pending_turns_company ON chat_pending_turns(company_id, created_at);
+
+-- Durable per-category consent decisions (spec §2b). Re-deciding a category
+-- overwrites the row (DELETE + INSERT, matching this codebase's putSetting
+-- convention) — not a one-way ratchet.
+CREATE TABLE IF NOT EXISTS chat_data_permissions (
+  company_id   VARCHAR   NOT NULL,
+  category     VARCHAR   NOT NULL,
+  decision     VARCHAR   NOT NULL,             -- 'allow_always' | 'deny_always'
+  aliased      BOOLEAN   NOT NULL DEFAULT FALSE, -- only meaningful when decision='allow_always'
+  decided_by   VARCHAR,
+  decided_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, category)
+);
+
+-- Real-value <-> alias map for structured identifiers (spec §3.1). Aliases
+-- are assigned lazily and stay stable for the life of the company. Free-text
+-- fields (descriptions, references) are never aliased — permanent non-goal,
+-- spec §0/§3.4.
+CREATE TABLE IF NOT EXISTS chat_aliases (
+  company_id   VARCHAR   NOT NULL,
+  real_value   VARCHAR   NOT NULL,
+  alias        VARCHAR   NOT NULL,
+  entity_type  VARCHAR   NOT NULL,             -- 'company' | 'partner'
+  created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (company_id, entity_type, real_value)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_aliases_alias ON chat_aliases(company_id, alias);
+
+-- =============================================================================
+-- Backfill (2026-09-15): 'partial' is no longer a stored bill status.
+-- amount_paid was always the real source of truth for how much of a bill had
+-- been paid; 'partial' vs 'posted' just mirrored that fact in a second
+-- place, which is the same dual-source-of-truth shape as the append-
+-- versioned `companies` bug found earlier this session — a value that has
+-- to be kept in sync with another rather than derived from it. Every
+-- former reader of 'partial' now reads amount_paid directly (bills.js's
+-- void guard, the Bills list's status badge/Outstanding column, etc.);
+-- this collapses any bill still carrying the old value onto 'posted' so no
+-- code path needs to know 'partial' ever existed. Naturally idempotent
+-- (WHERE status = 'partial' matches nothing once applied) — safe to leave
+-- as a permanent boot-time statement like the settings backfills above.
+UPDATE bills SET status = 'posted' WHERE status = 'partial';

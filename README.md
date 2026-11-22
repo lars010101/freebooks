@@ -75,7 +75,7 @@ git clone https://github.com/lars010101/freebooks ~/freebooks
 cd ~/freebooks
 npm install --prefix api          # install API dependencies
 npm install                       # root deps — pdf-parse (scanned-PDF bill/journal extraction), only needed to use that feature
-node db/init.js                   # create ~/.freebooks/freebooks.duckdb + load macros; seeds journals
+node db/init.js                   # optional: create ~/.freebooks/freebooks.duckdb ahead of time (the server does this on first boot)
 node db/import.js <data-dir>      # optional: import historical CSV data (COA, journal, mappings)
 node api/src/index.js             # start server on http://localhost:3000
 ```
@@ -85,14 +85,10 @@ Open <http://localhost:3000> — the first run redirects to the new-company wiza
 ### Updating
 
 ```bash
-# code only
-cd ~/freebooks && git pull && node api/src/index.js
-
-# code + schema/macro changes (stop the server first)
-cd ~/freebooks && git pull && node db/init.js && node api/src/index.js
+cd ~/freebooks && git pull && npm install --prefix api && node api/src/index.js
 ```
 
-> `node db/init.js` must run with the server stopped (DuckDB holds an exclusive file lock). If the server is already running, use `node db/init.js --via-server` to apply migrations through the live connection.
+The server applies pending database migrations on boot (see [Database migrations](#database-migrations)), backing up the database file first. If a migration fails it is rolled back and the server refuses to start; the log names the backup.
 
 The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before exit to prevent stale WAL files.
 
@@ -187,9 +183,13 @@ freebooks/
 │   ├── package.json
 │   └── server.js               # stdio MCP server over the action catalog
 ├── db/
-│   ├── schema.sql              # table definitions + migrations
-│   ├── macros.sql              # DuckDB macros: pl(), bs(), cf(), sce(), tb(), gl(), journal(), integrity()
-│   ├── init.js                 # loads schema + macros, seeds default journals (MISC, BANK, ADJ, AP)
+│   ├── schema.sql              # baseline schema (version 1, frozen)
+│   ├── migrations/             # numbered schema migrations (002_…), applied on boot
+│   ├── migrate.js              # migration runner (boot + init.js)
+│   ├── views.sql               # reporting views, re-applied on every boot
+│   ├── macros.sql              # DuckDB macros: pl(), bs(), cf(), sce(), tb(), gl(), journal(), integrity(); re-applied on every boot
+│   ├── legacy/pre-baseline.sql # frozen pre-migration schema, replayed once to upgrade older databases
+│   ├── init.js                 # CLI: create/migrate a database without starting the server
 │   ├── import.js               # one-time CSV import (COA, journal, mappings)
 │   ├── currencies.json         # ISO 4217 currency codes (autocomplete datalist)
 │   └── jurisdictions/          # jurisdiction packs (per pack: jurisdiction.json, coa.json, vat_codes.json, filings/ descriptors, contact attrs, integration declarations)
@@ -269,7 +269,19 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `events` | Append-only business-event stream (monotonic `event_seq`) — the agent input channel |
 | `audit_log` | Field-level change history (gains `actor_type` + `request_id`) |
 
-Schema also defines reporting views (`v_trial_balance`, `v_pl`, `v_bs`, `v_gl`) and migrations are appended inline to `schema.sql` and applied on every `node db/init.js` run.
+Reporting views (`v_companies_latest`, `v_trial_balance`, `v_pl`, `v_bs`, `v_gl`) live in `db/views.sql`.
+
+### Database migrations
+
+The schema version is recorded in `schema_migrations`. On every boot (and on `node db/init.js`), `db/migrate.js`:
+
+1. creates a fresh database from `db/schema.sql` (version 1), or brings a database from before versioned migrations to version 1 by replaying `db/legacy/pre-baseline.sql` once;
+2. applies each pending `db/migrations/NNN_name.sql` or `.js` in order, each in its own transaction, after copying the database file to `<db>.bak-<timestamp>-v<from>`;
+3. re-applies `db/views.sql` and `db/macros.sql`.
+
+Any failure stops boot. A database newer than the code is refused.
+
+**To change the schema**, add the next numbered file to `db/migrations/`: plain statements in `.sql`, or `exports.up = async ({ run, all }) => { … }` in `.js` for steps that need checks. Fresh databases run every migration too, so write them to be safe on a database that already has the change (`ADD COLUMN IF NOT EXISTS`, check before altering). Never edit a merged migration, `db/schema.sql` or `db/legacy/`. DuckDB cannot `ALTER` a table that has indexes inside a transaction, so changing a column's constraints means a table rebuild. `api/test/migrations.test.js` checks that fresh and upgraded databases match.
 
 ---
 
@@ -340,7 +352,7 @@ All report types render through `reports/render.js` (or `report-composite.js` fo
 | `ar` | K2 annual report composite (resultaträkning + balansräkning + noter; registry-driven, SE K2 / SG SFRS) | — |
 | `sie` | SIE 4 export (PC8/CP437, IB/UB/RES/VER) — SE-only | — |
 
-MoM/YoY apply only to `pl`, `bs`, and `cf`. YoY uses the company's defined fiscal periods. Report logic lives in DuckDB macros (`db/macros.sql`) — changes require re-running `node db/init.js` to reload them.
+MoM/YoY apply only to `pl`, `bs`, and `cf`. YoY uses the company's defined fiscal periods. Report logic lives in DuckDB macros (`db/macros.sql`), reloaded on every server start.
 
 **SRU / INK2 export (Skatteverket)** is served by dedicated endpoints:
 

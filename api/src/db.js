@@ -23,57 +23,12 @@ async function _openWithWalRecovery() {
     }
   }
   _conn = await _instance.connect();
-  await _applySchemaOnBoot(_conn);
+  // Versioned migrations (db/migrate.js). A failed migration throws, so boot
+  // stops instead of serving a half-migrated schema.
+  const { migrate } = require('../../db/migrate');
+  const r = await migrate(_conn, { dbPath: DB_PATH, log: m => console.log(m), warn: m => console.warn(m) });
+  console.log(`Database schema at version ${r.version}.`);
   return _conn;
-}
-
-// ── Schema boot-apply ─────────────────────────────────────────────────────────
-// db/schema.sql + db/macros.sql are idempotent BY CONSTRUCTION (IF NOT EXISTS,
-// OR REPLACE, guarded INSERT/UPDATE backfills). Applying them on every boot
-// keeps an EXISTING database current with the checked-out code — previously
-// migrations only ran via db/init.js, so a server that pulled new code without
-// re-running init served Binder errors on new columns (Magnus 2026-07-27:
-// empty COA — accounts.default_role missing). Boot must never crash on a
-// statement hiccup: failures are logged loudly and skipped.
-function _loadSqlStatements(file) {
-  // Full-line `--` comments are stripped BEFORE splitting so a semicolon
-  // inside a comment cannot fracture a statement (mirrors db/init.js).
-  return fs.readFileSync(file, 'utf8')
-    .split('\n')
-    .filter(l => !l.trim().startsWith('--'))
-    .join('\n')
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-}
-function _loadMacroBlocks(file) {
-  // Macros contain semicolons inside AS TABLE bodies — split on macro boundaries.
-  return fs.readFileSync(file, 'utf8')
-    .split(/(?=CREATE OR REPLACE MACRO)/)
-    .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--') && s.startsWith('CREATE'));
-}
-async function _applySchemaOnBoot(conn) {
-  try {
-    const dbDir = path.join(__dirname, '..', '..', 'db');
-    const schemaFile = path.join(dbDir, 'schema.sql');
-    if (!fs.existsSync(schemaFile)) return;
-    const stmts = _loadSqlStatements(schemaFile);
-    const macrosFile = path.join(dbDir, 'macros.sql');
-    const blocks = fs.existsSync(macrosFile) ? _loadMacroBlocks(macrosFile) : [];
-    const all = stmts.concat(blocks);
-    let applied = 0, skipped = 0;
-    for (const s of all) {
-      try { await conn.run(s, []); applied++; }
-      catch (e) {
-        skipped++;
-        console.warn(`⚠ schema boot-apply skipped a statement: ${String(e.message).split('\n')[0]} — ${s.slice(0, 90).replace(/\s+/g, ' ')}`);
-      }
-    }
-    console.log(`Schema boot-apply: ${applied} applied, ${skipped} skipped (${all.length} statements).`);
-  } catch (e) {
-    console.warn('⚠ schema boot-apply failed (continuing):', e.message);
-  }
 }
 
 function ensureDb() {

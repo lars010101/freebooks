@@ -3,7 +3,15 @@ const path = require('path');
 const fs = require('fs');
 const { DuckDBInstance } = require('@duckdb/node-api');
 
-const DB_PATH = process.env.FREEBOOKS_DB_PATH || process.env.DB_PATH || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
+// Under the node test runner (it sets NODE_TEST_CONTEXT in each test file's
+// process), a test that loads server modules in-process without setting
+// FREEBOOKS_DB_PATH must never reach the real ~/.freebooks database: until
+// 2026-11-22 tests/bill-extraction.test.mjs opened (and migrated) it on every
+// local `npm test`. Fall back to a per-process throwaway file instead.
+const _testFallback = process.env.NODE_TEST_CONTEXT
+  ? path.join(require('os').tmpdir(), `fb-test-${process.pid}`, 'freebooks.duckdb') : null;
+if (_testFallback) fs.mkdirSync(path.dirname(_testFallback), { recursive: true });
+const DB_PATH = process.env.FREEBOOKS_DB_PATH || process.env.DB_PATH || _testFallback || path.join(require('os').homedir(), '.freebooks', 'freebooks.duckdb');
 const WAL_PATH = DB_PATH + '.wal';
 
 let _instance = null;

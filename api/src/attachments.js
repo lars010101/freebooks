@@ -19,7 +19,10 @@ const { auditCall } = require('./audit');
 // FREEBOOKS_DB_PATH — without it, a scratch FREEBOOKS_DB_PATH run still
 // reads/writes real files under the default root, since the two were never
 // linked (2026-09-08).
-const ATTACHMENTS_ROOT = process.env.FREEBOOKS_ATTACHMENTS_ROOT || path.join(os.homedir(), '.freebooks', 'attachments');
+// Same test-runner guard as db.js: never the real folder under node --test.
+const ATTACHMENTS_ROOT = process.env.FREEBOOKS_ATTACHMENTS_ROOT
+  || (process.env.NODE_TEST_CONTEXT ? path.join(os.tmpdir(), `fb-test-${process.pid}`, 'attachments') : null)
+  || path.join(os.homedir(), '.freebooks', 'attachments');
 
 // A4 (§4.7) Disk controls — scoped to journal_proposal uploads only. All other
 // entity types keep the status quo (32MB action cap, no type whitelist). The

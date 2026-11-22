@@ -43,8 +43,15 @@ jobs:
           npm ci --prefix api
           npm ci --prefix mcp
 
+      # Without a browser every Playwright test prints SKIP and exits 0, so
+      # the UI regressions would never run in CI.
+      - name: Install Chromium for the browser tests
+        run: npx playwright-core install --with-deps chromium
+
       - name: Run full test suite (API contract + integration scripts)
-        run: npm test
+        run: |
+          npm test 2>&1 | tee test.log
+          if grep -q 'UX regression — SKIP' test.log; then echo 'A browser test skipped in CI'; exit 1; fi
 
   image:
     needs: test

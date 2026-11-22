@@ -74,7 +74,19 @@ try {
   if (!serc || !serc.is_reverse_charge) throw new Error('SERC RC code missing \u2014 cannot run RC test');
 
   // ── Browser: Journal Voucher page ──────────────────────────────────────────
-  const browser = await chromium.launch({ headless: true });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (e) {
+    // Same skip contract as the other browser tests: no Chromium → exit 0.
+    if (/Executable doesn't exist|browserType\.launch/.test(String(e && e.message))) {
+      console.log('=== RC balance UX regression — SKIP ===');
+      console.log('Playwright browser binary not installed. Run: npx playwright-core install chromium');
+      await srv.cleanup();
+      process.exit(0);
+    }
+    throw e;
+  }
   const page = await browser.newPage();
   const logs = [];
   page.on('pageerror', e => logs.push('PAGEERROR: ' + e.message));

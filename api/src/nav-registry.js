@@ -1,14 +1,12 @@
 'use strict';
 // ── Route registry — the single source of truth for app navigation ──────────
-// K1 (keyboard-nav program). Every app route lives here once. Four consumers
+// K1 (keyboard-nav program). Every app route lives here once. Three consumers
 // share this table so they can never drift:
 //   1. sidebar        — api/src/pages/common.js navBar() renders the sidebar
 //                       anchors from the entries where sidebar:true.
-//   2. {/} cycling    — common.js reads the rendered .sb-nav anchors (which
-//                       come from this registry) for prev/next page nav.
-//   3. g-prefix map   — api/public/fb-core.js reads window.FB_ROUTES (injected
+//   2. g-prefix map   — api/public/fb-core.js reads window.FB_ROUTES (injected
 //                       by navBar) and maps gKey letters → routes.
-//   4. ? help overlay  — api/public/fb-core.js help.open() reads
+//   3. ? help overlay  — api/public/fb-core.js help.open() reads
 //                       window.FB_ROUTES and renders g-key destinations
 //                       as NAV rows (#149; relocated from : palette).
 //

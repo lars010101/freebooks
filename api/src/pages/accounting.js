@@ -36,17 +36,24 @@ ${commonStyle()}
   .subhead { font-size:0.875rem; font-weight:700; color:var(--text); margin:18px 0 6px; }
   .subhead:first-child { margin-top:0; }
   /* Integrity tab — fetched report fragment, not FB.list (nothing to edit).
-     Mirrors reports/render.js htmlPage()'s embedded styling, theme-aware.
-     White card on this page's own gray background — the QBO/Xero
-     convention for rendered financial statements (magnus, 2026-09-17: "go
-     towards the industry standard, benchmark QBO/Xero").
+     Sits flush on the page, no wrapping card — same as Payables' Aging/
+     Control embeds and every FB.list table (docs/UI.md "A report fragment
+     embedded in a host page sits flush"): header cell 6px 6px, body cell
+     4px 6px, no table margin, so the headers start at the same x/y as a
+     sibling table's. Converted 2026-11-22 from the 2026-09-17 QBO/Xero
+     white card. Screen-only — print/PDF use the standalone report's CSS.
      docs/ia-restructure-3-spec.md §3.3. */
-  .rpt-embed { background:var(--surface); border-radius:8px; padding:16px 20px; }
+  .rpt-embed { display:block; }
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
-  .rpt-embed table { width:100%; border-collapse:collapse; margin-top:8px; }
-  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
-  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  .rpt-embed table { width:100%; border-collapse:collapse; }
+  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
+  .rpt-embed td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  /* Numeric columns (RE roll-forward): header aligns with its right-aligned
+     figures — the report's own th.num/td.num rules don't survive the
+     fragment extraction, same mirror as reports-hub.js. */
+  .rpt-embed th.num { text-align:right; }
+  .rpt-embed td.num { text-align:right; font-variant-numeric:tabular-nums; }
   /* .doc-link's own rule lives in the report's <style> (render.js htmlPage())
      — stripped along with the rest of <head> by the DOMParser fragment
      extraction below (only .page's markup survives). Without a mirror here

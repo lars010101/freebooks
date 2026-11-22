@@ -467,8 +467,12 @@ tr.nav-row-focus:not(.row-editing) > td {
   user-select: none;
 }
 .fb-add-row:hover td { background: var(--bg); color: var(--accent) !important; }
-/* Keyboard cursor landing on the add row must stay visible. */
-tr.fb-add-row.nav-row-focus td { background: var(--accent) !important; color: rgba(255,255,255,.85) !important; }
+/* Keyboard cursor landing on the add row must stay visible. Uses the same
+   translucent row tint as every other focused row (tr.nav-row-focus > td,
+   above — this rule no longer sets a background, so that one applies) plus
+   the hover's accent text. Converged 2026-11-22; it was the pre-2026-09-11
+   solid var(--accent) fill with forced light text. */
+tr.fb-add-row.nav-row-focus td { color: var(--accent) !important; }
 
 /* Unsaved inline-draft edits left behind by Esc (write with w). Previously
    gated on `body.fb-dark`, a class the theme toggle never applies (it sets

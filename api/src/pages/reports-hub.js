@@ -59,15 +59,18 @@ async function buildHubPage(req, res, opts) {
 <title>${esc(pageTitle)} — freeBooks</title>
 ${commonStyle()}
 <style>
-  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); padding:0 3rem; }
+  .tabs { display:flex; gap:0; border-bottom:2px solid var(--accent); padding:0 3rem; margin-bottom:20px; } /* 20px tab→table gap, same as Payables */
   .tab { padding:8px 20px; cursor:pointer; font-weight:600; font-size:0.8125rem; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
   .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
   /* Report fragment styling — mirrors reports/render.js htmlPage()'s embedded
      <style> block (that CSS never ships to the client here; only the .page
-     element's markup does), made theme-aware via the app's CSS vars. White
-     card on the gray wrapper below — the QBO/Xero convention for rendered
-     financial statements (magnus, 2026-09-17: "go towards the industry
-     standard, benchmark QBO/Xero"). */
+     element's markup does), made theme-aware via the app's CSS vars. Sits
+     flush on the page gray, no wrapping card — same as Payables' Aging/
+     Control and every FB.list table (docs/UI.md "A report fragment embedded
+     in a host page sits flush"): no card padding, header cell 6px 6px, body
+     cell 4px 6px, table left edge on the H1/tabs' 3rem line, 20px below the
+     tabs like Payables. Converted 2026-11-22 from the 2026-09-17 QBO/Xero
+     white card. Screen-only — PDF/print use the standalone report's CSS. */
   /* Whole-page scroll (magnus, 2026-09-18: "I much prefer the scrolling
      behavior illustrated in Payables/Bills: the entire page header scrolls
      away and column header row sticks only just below the top bar") —
@@ -83,8 +86,8 @@ ${commonStyle()}
      for position:sticky to anchor against. Matching that here: no
      height:100%/flex-cascade tricks, .table-wrap only needs overflow-x for
      the wide reports (TB/Integrity), and #page-main does the rest. */
-  .rpt-embed { background:var(--surface); border-radius:8px; }
-  .rpt-embed .page { padding:24px; max-width:none; }
+  .rpt-embed { display:block; }
+  .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .page.wide .table-wrap { overflow-x:auto; }
   .rpt-embed .page.wide th { white-space:nowrap; }
   /* Company/report-title/period repeats page chrome the app already shows —
@@ -101,15 +104,16 @@ ${commonStyle()}
      where the row scrolling underneath can paint through/above the sticky
      header at the boundary (magnus, 2026-09-17). border-spacing:0 keeps
      cells touching exactly as collapse did. */
-  .rpt-embed table { width:100%; border-collapse:separate; border-spacing:0; margin-top:8px; }
-  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 8px; }
+  .rpt-embed table { width:100%; border-collapse:separate; border-spacing:0; }
+  .rpt-embed th { text-align:left; font-size:0.75rem; text-transform:uppercase; color:var(--text-muted); border-bottom:1px solid var(--border); padding:6px 6px; }
   /* GL/Journal/Voucher Register fragments carry <table class="edit-table">
      (FB.list-editable) — common.css's shared sticky-header rule paints
      that th gray (.edit-table thead th { background:var(--bg) }, magnus
      2026-09-16), which is MORE specific than .rpt-embed th above and wins
-     regardless of source order, leaving the header row gray against this
-     card's white. Out-specified here rather than guessed at (magnus,
-     2026-09-17: "don't act blindly, if it should, it should"). */
+     regardless of source order. Out-specified here rather than guessed at
+     (magnus, 2026-09-17: "don't act blindly, if it should, it should").
+     Since the flush conversion (2026-11-22) the sticky header's backing is
+     the page gray, var(--bg), same as Payables' embed. */
   /* A large upward box-shadow used to sit here (magnus, 2026-09-17) as a
      band-aid over the sticky-header ghosting bug that came from the old
      bounded-scroll-box architecture. Removed (2026-09-18): once this page
@@ -120,7 +124,7 @@ ${commonStyle()}
      ("a white bar has appeared high on the page... hiding partly
      'Journal'"). The ghosting bug it covered for doesn't exist in this
      architecture in the first place (nothing left to cover). */
-  .rpt-embed table.edit-table thead th { background:var(--surface); }
+  .rpt-embed table.edit-table thead th { background:var(--bg); }
   /* common.css's own th.fb-th-filterable padding-right reservation (for the
      ≡ filter icon) is scoped to .data-table only — GL/Journal/Voucher
      Register use .edit-table, so their OWN standalone pages carry a local
@@ -132,7 +136,7 @@ ${commonStyle()}
      specific amount" — the filter existed, it just wasn't usably visible). */
   .rpt-embed th.fb-th-filterable { padding-right: 24px; }
   .rpt-embed th.num { text-align:right; }
-  .rpt-embed td { padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
+  .rpt-embed td { padding:4px 6px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text); }
   .rpt-embed td.num { text-align:right; font-variant-numeric:tabular-nums; }
   .rpt-embed tr.subtotal td { font-weight:600; border-top:1px solid var(--text-faint); border-bottom:2px solid var(--text-faint); background:var(--bg); }
   .rpt-embed tr.type_total td { font-weight:700; border-top:1px solid var(--text-faint); background:var(--bg); }
@@ -147,7 +151,7 @@ ${commonStyle()}
   .rpt-embed .doc-link { color:var(--accent); text-decoration:none; font-weight:500; }
   .rpt-embed .doc-link:hover { text-decoration:underline; }
   .rpt-embed .footer { margin-top:24px; padding-top:12px; border-top:1px solid var(--border); font-size:0.75rem; color:var(--text-muted); }
-  .rpt-embed-msg { padding:2rem; color:var(--text-muted); }
+  .rpt-embed-msg { padding:1rem 0; color:var(--text-muted); }
   /* MoM/YoY moved from a persistent controls-row above the tabs to a single
      cycling icon living directly in the Amount/Balance column header, only
      for the 3 reports that actually support it (magnus, 2026-09-18: "They
@@ -182,7 +186,7 @@ ${commonStyle()}
     ${tabsHtml}
   </div>
 
-  <div style="background:var(--bg); padding:1rem;">
+  <div style="background:var(--bg); padding:0 3rem 1rem;">
     <div id="report-body" class="rpt-embed"><p class="rpt-embed-msg">Select a report…</p></div>
   </div>
 </div>

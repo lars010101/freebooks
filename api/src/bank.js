@@ -151,6 +151,87 @@ async function buildFxSettlementLines(companyId, bill, bankAmount, mode, homeCur
 function round4(n) {
   return Math.round(n * 10000) / 10000;
 }
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+// Issue #303: Tier 2 shortfall types the vendor treats as FINAL settlement —
+// the bank paid less than the outstanding balance and no further payment is
+// coming. Each maps to the account role that absorbs the shortfall.
+const SHORTFALL_ROLES = {
+  early_payment_discount: 'Discount received',
+  bank_fee_netted: 'Bank charges',
+};
+
+/**
+ * buildShortfallSettlementLines — home-currency bill paid short by an agreed
+ * discount or a netted fee (issue #303). 'full' closes the bill on approve:
+ *
+ *   DR AP                outstanding   (bank amount + shortfall)
+ *   CR Input VAT (code)  shortfall × bill's VAT share, per standard code
+ *                        (early_payment_discount only — a discount received
+ *                        reduces the input VAT claimed; signed vat_adjust so
+ *                        the VAT return nets it)
+ *   CR Discount received / Bank charges   the rest of the shortfall
+ *
+ * (The bank line, CR bank amount, is built by the caller.) Every line
+ * returned is tagged bill_id so journal.approve's settlement sums them back
+ * to the bank amount for payments.amount, and toggleSettlement can recover
+ * the bank amount from the tagged lines. 'partial' = the plain pay-down.
+ *
+ * @returns {Promise<{blocked:boolean, blockedReason?:string, lines?:object[]}>}
+ *   lines are raw {account_code, debit, credit, vat_adjust?}; caller adds
+ *   date/description/bill_id.
+ */
+async function buildShortfallSettlementLines(companyId, bill, bankAmount, discrepancyType, mode) {
+  const outstanding = round4(Number(bill.amount_home) - Number(bill.amount_paid));
+  const shortfall = round4(outstanding - bankAmount);
+  if (mode !== 'full' || !(shortfall > 0)) {
+    return { blocked: false, lines: [{ account_code: bill.ap_account, debit: bankAmount, credit: 0 }] };
+  }
+  const role = SHORTFALL_ROLES[discrepancyType];
+  const roleRows = await query(
+    `SELECT account_code FROM accounts WHERE company_id = @companyId AND default_role = @role AND is_active = true LIMIT 1`,
+    { companyId, role }
+  );
+  const shortfallAccount = roleRows[0]?.account_code;
+  if (!shortfallAccount) {
+    return { blocked: true, blockedReason: `${role} account not configured — add one in Settings → Company (mark an account’s Default Role as ‘${role}’), or toggle this match to Partial to leave the ${shortfall.toFixed(2)} open.` };
+  }
+
+  const lines = [{ account_code: bill.ap_account, debit: outstanding, credit: 0 }];
+  let remaining = shortfall;
+  if (discrepancyType === 'early_payment_discount') {
+    // The bill's own posted standard-VAT lines (DR side = the original
+    // posting; reverse-charge codes are excluded — their input/output pair
+    // nets to zero and a discount doesn't change that). Gross base = what
+    // the vendor invoiced: AP plus any VAT-inclusive WHT withheld.
+    const vatRows = await query(
+      `SELECT je.account_code, je.vat_code,
+              SUM(je.debit_home) AS vat, SUM(je.net_amount_home) AS net
+       FROM journal_entries je
+       JOIN vat_codes vc ON vc.company_id = je.company_id AND vc.vat_code = je.vat_code
+       WHERE je.company_id = @companyId AND je.bill_id = @billId
+         AND je.debit_home > 0 AND je.reversed_by IS NULL AND je.reverses IS NULL
+         AND vc.is_reverse_charge = false
+       GROUP BY je.account_code, je.vat_code
+       ORDER BY je.vat_code`,
+      { companyId, billId: bill.bill_id }
+    );
+    const gross = Number(bill.amount_home) + (Number(bill.wht_amount) || 0) * (Number(bill.fx_rate) || 1);
+    if (gross > 0) {
+      for (const r of vatRows) {
+        const vatPart = round2(shortfall * Number(r.vat) / gross);
+        if (!(vatPart > 0)) continue;
+        const netPart = round2(shortfall * Number(r.net) / gross);
+        lines.push({ account_code: r.account_code, debit: 0, credit: vatPart, vat_adjust: { vat_code: r.vat_code, vat_amount: -vatPart, net_amount: -netPart } });
+        remaining = round4(remaining - vatPart);
+      }
+    }
+  }
+  lines.push({ account_code: shortfallAccount, debit: 0, credit: remaining });
+  return { blocked: false, lines };
+}
 
 // Human-reviewer override of the §4.4 band-classification default. Flips a
 // still-proposed proposal's tagged AP/FX lines between 'full' and 'partial'
@@ -186,7 +267,7 @@ async function toggleSettlement(ctx) {
   const sampleLine = taggedLines[0];
 
   const billRows = await query(
-    `SELECT bill_id, ap_account, fx_rate, currency, amount, amount_paid FROM bills WHERE company_id=@companyId AND bill_id=@billId LIMIT 1`,
+    `SELECT bill_id, ap_account, fx_rate, currency, amount, amount_home, amount_paid, wht_amount FROM bills WHERE company_id=@companyId AND bill_id=@billId LIMIT 1`,
     { companyId, billId }
   );
   if (!billRows.length) throw Object.assign(new Error('Bill not found'), { code: 'NOT_FOUND' });
@@ -197,6 +278,26 @@ async function toggleSettlement(ctx) {
 
   const currentMode = (matchMeta.settlement && matchMeta.settlement.mode) || 'full';
   const newMode = currentMode === 'full' ? 'partial' : 'full';
+  const { enrichAndValidate } = require('./journal');
+
+  // Issue #303: home-currency discount/fee shortfall — rebuild the tagged
+  // lines (AP + discount/fee + VAT share) for the new mode; bank line untouched.
+  if (matchMeta.settlement && matchMeta.settlement.kind === 'shortfall') {
+    const discrepancyType = matchMeta.settlement.discrepancy_type;
+    const sf = await buildShortfallSettlementLines(companyId, bill, bankAmount, discrepancyType, newMode);
+    if (sf.blocked) throw Object.assign(new Error(sf.blockedReason), { code: 'VALIDATION' });
+    const rawLines = otherLines.concat(sf.lines.map((l) => ({ ...l, date: sampleLine.date, description: sampleLine.description, bill_id: billId })));
+    const { enrichedLines, validation } = await enrichAndValidate(companyId, rawLines);
+    if (!validation.valid) {
+      throw Object.assign(new Error((validation.errors || []).join('; ')), { code: 'VALIDATION', details: { errors: validation.errors, warnings: validation.warnings } });
+    }
+    matchMeta.settlement = { ...matchMeta.settlement, mode: newMode, blocked: false, blockedReason: undefined };
+    await exec(
+      `UPDATE journal_proposals SET lines=@lines, match_meta=@matchMeta, updated_at=@now WHERE company_id=@companyId AND proposal_id=@proposalId AND status='proposed'`,
+      { lines: JSON.stringify(enrichedLines), matchMeta: JSON.stringify(matchMeta), now: new Date().toISOString(), companyId, proposalId }
+    );
+    return { proposalId, billId, mode: newMode };
+  }
 
   const fx = await buildFxSettlementLines(companyId, bill, bankAmount, newMode, homeCurrency);
   if (fx.blocked) {
@@ -211,8 +312,7 @@ async function toggleSettlement(ctx) {
   // proposeEntry uses so the toggled lines end up enriched identically —
   // otherLines pass through unchanged (already enriched; recomputing off their
   // own currency/vat_code is idempotent).
-  const { enrichAndValidate } = require('./journal');
-  const rawApLine = { account_code: fx.apLine.account_code, date: sampleLine.date, description: sampleLine.description, debit: fx.apLine.debit, credit: fx.apLine.credit, bill_id: billId };
+  const rawApLine ={ account_code: fx.apLine.account_code, date: sampleLine.date, description: sampleLine.description, debit: fx.apLine.debit, credit: fx.apLine.credit, bill_id: billId };
   const rawLines = otherLines.concat([rawApLine]);
   if (fx.fxLine) rawLines.push({ account_code: fx.fxLine.account_code, date: sampleLine.date, description: fx.fxLine.description || sampleLine.description, debit: fx.fxLine.debit, credit: fx.fxLine.credit, bill_id: billId });
 
@@ -579,7 +679,7 @@ async function matchLine(ctx) {
 
   if (accountingMethod !== 'cash') {
     const openBills = await query(
-      `SELECT bill_id, partner_name, vendor_ref, amount, amount_home, amount_paid,
+      `SELECT bill_id, partner_name, vendor_ref, amount, amount_home, amount_paid, wht_amount,
               fx_rate, ap_account, currency, (amount_home - amount_paid) AS outstanding, due_date
        FROM bills
        WHERE company_id = @companyId AND status = 'posted'
@@ -640,6 +740,36 @@ async function matchLine(ctx) {
           fxSettled = true;
           settlementInfo = { billId: bill.bill_id, mode: settlementMode, blocked: false };
         }
+      }
+      // Issue #303: a home-currency early_payment_discount / bank_fee_netted
+      // match defaults to FULL settlement — the shortfall goes to Discount
+      // received (with its VAT share off input VAT) or Bank charges, and the
+      // bill closes on approve. ~ in Inbox flips to partial (plain pay-down).
+      let shortfallLines = null;
+      if (!fxSettled && singleBillPayDown && !isForeignBill && SHORTFALL_ROLES[m.discrepancy_type]) {
+        const sf = await buildShortfallSettlementLines(companyId, bill, amount, m.discrepancy_type, 'full');
+        settlementInfo = { billId: bill.bill_id, mode: 'full', kind: 'shortfall', discrepancy_type: m.discrepancy_type, blocked: !!sf.blocked };
+        if (sf.blocked) settlementInfo.blockedReason = sf.blockedReason;
+        else shortfallLines = sf.lines.map((l) => ({ ...l, date: line.date, description: line.description, bill_id: bill.bill_id }));
+      }
+      if (shortfallLines) {
+        bankLine = { account_code: bankAccount, date: line.date, description: line.description, debit: 0, credit: amount };
+        return {
+          matched: true,
+          tier: 2,
+          source_type: 'open_item',
+          confidence: {
+            account:      { value: apAccount,    confidence: m.confidence, derived_from: ['bill'] },
+            vat_code:      { value: null,         confidence: 0,           derived_from: [] },
+            counterparty:  { value: bill.partner_name, confidence: m.confidence, derived_from: ['bill'] },
+          },
+          evidence: [ev],
+          suggested_dimensions: {
+            account: apAccount, vat_code: null, counterparty: bill.partner_name, cost_center: null, profit_center: null,
+          },
+          lines: shortfallLines.concat([bankLine]),
+          settlement: settlementInfo,
+        };
       }
       if (!fxSettled) {
         apLine = { account_code: apAccount, date: line.date, description: line.description };

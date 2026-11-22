@@ -97,6 +97,21 @@ async function enrichAndValidate(companyId, lines) {
 
     let vatAmount = 0, vatAmountHome = 0, netAmount = 0, netAmountHome = 0;
     let vatMeta = null;
+    if (line.vat_adjust) {
+      // Explicit, pre-computed SIGNED VAT correction posted straight onto a
+      // VAT GL line (bank-match early-payment discount, issue #303: CR input
+      // VAT for the discount's VAT share). No _vatMeta, so
+      // expandJournalVatLines leaves it alone; vat_amount may be negative so
+      // vat.js's SUM(vat_amount_home) per code nets it against the bill's
+      // original VAT line. vat_adjust stays on the enriched line so a second
+      // pass through here is idempotent.
+      const va = line.vat_adjust;
+      const vAmt = Number(va.vat_amount) || 0;
+      const nAmt = Number(va.net_amount) || 0;
+      enrichedLines.push({ ...line, currency, fx_rate: fxRate, debit, credit, debit_home: debit * fxRate, credit_home: credit * fxRate,
+        vat_code: va.vat_code || null, vat_amount: vAmt, vat_amount_home: vAmt * fxRate, net_amount: nAmt, net_amount_home: nAmt * fxRate, _vatMeta: null });
+      continue;
+    }
     if (line.vat_code && company.vat_registered) {
       const vcRows = await query(
         `SELECT rate, vat_account_input, vat_account_output, is_reverse_charge

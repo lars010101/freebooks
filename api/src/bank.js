@@ -715,11 +715,50 @@ async function matchLine(ctx) {
       // human can override via bank.match.toggleSettlement (~ in Inbox)
       // before approving; journal.approve refuses to post at all if the
       // settlement is `blocked` (missing FX rate/account), regardless of
-      // which mode. Multi-bill (m.bills) still needs the §2.2 N-lines
-      // restructuring and an inflow against a bill (isInflow — a
-      // credit/refund, not a normal payment) isn't modeled by the
-      // settlement machinery — both still post untagged, human-reviewed.
+      // which mode. An inflow against a bill (isInflow — a credit/refund,
+      // not a normal payment) isn't modeled by the settlement machinery —
+      // it still posts untagged, human-reviewed.
+      const tier2Result = (lines, settlement) => ({
+        matched: true,
+        tier: 2,
+        source_type: 'open_item',
+        confidence: {
+          account:      { value: apAccount,    confidence: m.confidence, derived_from: ['bill'] },
+          vat_code:      { value: null,         confidence: 0,           derived_from: [] },
+          counterparty:  { value: bill.partner_name, confidence: m.confidence, derived_from: ['bill'] },
+        },
+        evidence: [ev],
+        suggested_dimensions: {
+          account: apAccount, vat_code: null, counterparty: bill.partner_name, cost_center: null, profit_center: null,
+        },
+        lines,
+        settlement,
+      });
       const apLineIsDebit = debitAccount === apAccount;
+
+      // Issue #301 / settlement-spec §2.2: 1:N — one outgoing bank line pays
+      // several home-currency bills (matchOpenItem step 3, exact sum only).
+      // One AP debit per bill on that bill's own AP account, each tagged
+      // with its bill_id so journal.approve settles every bill, plus one
+      // shared bank credit. The last bill absorbs the sub-cent difference
+      // the matcher's 0.01 tolerance allows, so the entry always balances
+      // against the statement amount.
+      if (m.bills && !isInflow && apLineIsDebit) {
+        const apLines = [];
+        let allocated = 0;
+        m.bills.forEach((b, i) => {
+          const share = i === m.bills.length - 1
+            ? round4(amount - allocated)
+            : round4(Number(b.outstanding));
+          allocated = round4(allocated + share);
+          apLines.push({
+            account_code: b.ap_account, date: line.date, debit: share, credit: 0, bill_id: b.bill_id,
+            description: `${line.description} / ${b.vendor_ref || b.bill_id}`,
+          });
+        });
+        const bankCredit = { account_code: bankAccount, date: line.date, description: line.description, debit: 0, credit: amount };
+        return tier2Result(apLines.concat([bankCredit]), null);
+      }
       const isForeignBill = !!(bill.currency && bill.currency !== homeCurrency);
       const singleBillPayDown = !m.bills && !isInflow && apLineIsDebit;
       const isFxSettleable = singleBillPayDown && isForeignBill
@@ -754,22 +793,7 @@ async function matchLine(ctx) {
       }
       if (shortfallLines) {
         bankLine = { account_code: bankAccount, date: line.date, description: line.description, debit: 0, credit: amount };
-        return {
-          matched: true,
-          tier: 2,
-          source_type: 'open_item',
-          confidence: {
-            account:      { value: apAccount,    confidence: m.confidence, derived_from: ['bill'] },
-            vat_code:      { value: null,         confidence: 0,           derived_from: [] },
-            counterparty:  { value: bill.partner_name, confidence: m.confidence, derived_from: ['bill'] },
-          },
-          evidence: [ev],
-          suggested_dimensions: {
-            account: apAccount, vat_code: null, counterparty: bill.partner_name, cost_center: null, profit_center: null,
-          },
-          lines: shortfallLines.concat([bankLine]),
-          settlement: settlementInfo,
-        };
+        return tier2Result(shortfallLines.concat([bankLine]), settlementInfo);
       }
       if (!fxSettled) {
         apLine = { account_code: apAccount, date: line.date, description: line.description };
@@ -782,28 +806,12 @@ async function matchLine(ctx) {
         };
       }
 
-      return {
-        matched: true,
-        tier: 2,
-        source_type: 'open_item',
-        confidence: {
-          account:      { value: apAccount,    confidence: m.confidence, derived_from: ['bill'] },
-          vat_code:      { value: null,         confidence: 0,           derived_from: [] },
-          counterparty:  { value: bill.partner_name, confidence: m.confidence, derived_from: ['bill'] },
-        },
-        evidence: [ev],
-        suggested_dimensions: {
-          account: apAccount,
-          vat_code: null,
-          counterparty: bill.partner_name,
-          cost_center: null,
-          profit_center: null,
-        },
-        lines: fxLine
+      return tier2Result(
+        fxLine
           ? [apLine, fxLine, bankLine]
           : (apLineIsDebit ? [apLine, bankLine] : [bankLine, apLine]),
-        settlement: settlementInfo,
-      };
+        settlementInfo,
+      );
     }
   }
 

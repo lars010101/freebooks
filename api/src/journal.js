@@ -1229,6 +1229,7 @@ async function approveProposal(ctx) {
   // reference sequence gone missing) rolls the claim back instead of leaving the
   // proposal stuck status='posted' with no batch.
   let postResult;
+  const appliedSettlements = [];
   try {
     postResult = await postJournalBatch(ctx, {
       enrichedLines,
@@ -1257,36 +1258,36 @@ async function approveProposal(ctx) {
     // functions use for that half of their work. Runs inside this same try
     // block so a failure here rolls back the just-posted batch too, via
     // the existing catch below.
-    // NOTE: today bank.match tags at most one bill_id per proposal (§2.2's
-    // 1:N restructuring isn't built) — this loop is written for the
-    // general case, but a partial failure across MULTIPLE bills in one
-    // batch would leave earlier bills in this loop settled while the catch
-    // below deletes the whole journal batch, an inconsistency this
-    // compensating-rollback pattern (not a real DB transaction) can't undo.
+    // Two-phase (issue #301 made 1:N settlement real): compute every bill's
+    // settlement first (reads only), then apply them, recording each bill's
+    // prior amount_paid/status in appliedSettlements so the catch below can
+    // undo bills already written if a later write fails — the compensating
+    // counterpart of the journal-batch delete. Events are emitted only once
+    // every bill has been applied.
     const settledBillIds = Array.from(new Set(enrichedLines.filter((l) => l.bill_id).map((l) => l.bill_id)));
     if (settledBillIds.length) {
       const { applyBillSettlement } = require('./settlement');
       const round4 = (n) => Math.round(n * 10000) / 10000;
       const companyRows = await query(`SELECT currency FROM companies WHERE company_id=@companyId LIMIT 1`, { companyId });
       const homeCurrency = companyRows[0]?.currency || 'USD';
+      const plan = [];
       for (const settledBillId of settledBillIds) {
         const linesForBill = enrichedLines.filter((l) => l.bill_id === settledBillId);
         const billRows = await query(
-          `SELECT amount, amount_home, amount_paid, currency, fx_rate, ap_account FROM bills WHERE company_id=@companyId AND bill_id=@settledBillId LIMIT 1`,
+          `SELECT amount, amount_home, amount_paid, status, currency, fx_rate, ap_account FROM bills WHERE company_id=@companyId AND bill_id=@settledBillId LIMIT 1`,
           { companyId, settledBillId }
         );
         if (!billRows.length) continue; // bill gone — best effort, matches voidBillPayment's own precedent
         const bill = billRows[0];
         // The AP-side line carries the amount at booking rate (home
         // currency) — settledBooked in buildAllocationLines terms. Any
-        // sibling FX gain/loss line shares the same bill_id (mirrors
-        // settleMultiBillPayment's tagging) but is not the settled amount.
+        // sibling FX gain/loss (or #303 discount/VAT) line shares the same
+        // bill_id but is not the settled amount.
         const apLineForBill = linesForBill.find((l) => l.account_code === bill.ap_account) || linesForBill[0];
         const settledBooked = round4(Number(apLineForBill.debit) - Number(apLineForBill.credit));
         if (!(settledBooked > 0)) continue; // credit-side/inflow against a bill — not modeled, leave untouched
         // payments.amount is the total bank-currency movement for this
-        // bill: AP line plus any FX line's own debit/credit (their sum is
-        // the actual bank share once an FX difference is booked).
+        // bill: the sum of every line tagged to it.
         const bankAmount = round4(linesForBill.reduce((s, l) => s + (Number(l.debit) || 0) - (Number(l.credit) || 0), 0));
 
         const isForeign = !!(bill.currency && bill.currency !== homeCurrency);
@@ -1305,15 +1306,21 @@ async function approveProposal(ctx) {
           newStatus = newAmountPaid >= Number(bill.amount_home) - 0.005 ? 'paid' : 'posted';
           amountForeign = null;
         }
+        plan.push({ settledBillId, bill, isForeign, newAmountPaid, newStatus, amountForeign, bankAmount, date: apLineForBill.date });
+      }
 
+      for (const p of plan) {
+        appliedSettlements.push({ billId: p.settledBillId, amountPaid: p.bill.amount_paid, status: p.bill.status });
         await applyBillSettlement({
-          companyId, billId: settledBillId, newAmountPaid, newStatus,
-          bankAmount, amountForeign,
-          batchId: postResult.batchId, date: apLineForBill.date, method: 'bank_match', paymentReference: null,
+          companyId, billId: p.settledBillId, newAmountPaid: p.newAmountPaid, newStatus: p.newStatus,
+          bankAmount: p.bankAmount, amountForeign: p.amountForeign,
+          batchId: postResult.batchId, date: p.date, method: 'bank_match', paymentReference: null,
         });
-        await emitEvent(ctx, 'payment.recorded', 'payment', settledBillId, {
-          billId: settledBillId, amount: isForeign ? amountForeign : bankAmount, currency: bill.currency,
-          method: 'bank_match', date: apLineForBill.date, status: newStatus,
+      }
+      for (const p of plan) {
+        await emitEvent(ctx, 'payment.recorded', 'payment', p.settledBillId, {
+          billId: p.settledBillId, amount: p.isForeign ? p.amountForeign : p.bankAmount, currency: p.bill.currency,
+          method: 'bank_match', date: p.date, status: p.newStatus,
         });
       }
     }
@@ -1323,6 +1330,25 @@ async function approveProposal(ctx) {
     // orphan batch lingers — then restore the proposal to 'proposed'. The
     // batch_id IS NULL guard ensures we only touch rows that haven't been
     // finalized (batch_id is stamped only after this block succeeds).
+    // Undo any bill settlements already applied (two-phase loop above):
+    // restore each bill's prior amount_paid/status and drop this batch's
+    // payment rows, so a mid-loop failure can't leave some bills paid
+    // against a journal batch that is about to be deleted.
+    if (postResult && appliedSettlements.length) {
+      for (const a of appliedSettlements) {
+        try {
+          await exec(`UPDATE bills SET amount_paid=@amountPaid, status=@status WHERE company_id=@companyId AND bill_id=@billId`,
+            { amountPaid: a.amountPaid, status: a.status, companyId, billId: a.billId });
+        } catch (bErr) {
+          console.error(`CRITICAL: approve settlement rollback failed for bill ${a.billId} (proposal ${proposalId}):`, bErr.message);
+        }
+      }
+      try {
+        await exec(`DELETE FROM payments WHERE company_id=@companyId AND batch_id=@batchId`, { companyId, batchId: postResult.batchId });
+      } catch (pErr) {
+        console.error(`CRITICAL: approve payments cleanup failed for batch ${postResult.batchId}:`, pErr.message);
+      }
+    }
     if (postResult) {
       try {
         await exec(

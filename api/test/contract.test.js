@@ -1075,6 +1075,65 @@ test('Thread D: bank.match.toggleSettlement flips full→partial (and back), reb
   assert.ok(Math.abs(Number(bill[0].amount_paid) - 600) < 0.01);
 });
 
+test('#301 / settlement-spec §2.2: 1:N bank line → one tagged AP line per bill, approve settles every bill, void restores them', async () => {
+  const CO_BM = 'CBM301';
+  const seeded = await seedCompany(baseUrl, CO_BM);
+  await grantFor(CO_BM);
+  const ids = [];
+  for (const [ref, amt] of [['MB-1', 300], ['MB-2', 450.25]]) {
+    const c = await api(baseUrl, 'bill.create', {
+      companyId: CO_BM,
+      bill: bmBill(seeded.AP, seeded.EXP, { vendor_ref: ref, amount: amt, lines: [{ description: 'Consulting', expense_account: seeded.EXP, amount: amt, vat_code: '' }] }),
+    });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    ids.push(c.body.data.billId);
+  }
+
+  const m = await api(baseUrl, 'bank.match', {
+    companyId: CO_BM, bankAccount: '1020',
+    line: { date: TD.day21, amount: -750.25, description: 'ACME PAYMENT' },
+  });
+  assert.equal(m.status, 200, JSON.stringify(m.body));
+  assert.equal(m.body.data.matched, true);
+  assert.deepEqual([...m.body.data.evidence[0].bills].sort(), [...ids].sort());
+  const lines = m.body.data.lines;
+  assert.equal(lines.length, 3, 'one AP line per bill + one shared bank line');
+  for (const id of ids) assert.ok(lines.some((l) => l.bill_id === id && l.account_code === seeded.AP && l.debit > 0), `AP line tagged for ${id}`);
+  const bankLine = lines.find((l) => l.account_code === '1020');
+  assert.ok(Math.abs(bankLine.credit - 750.25) < 0.005, 'bank-side total = statement amount');
+  const dr = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+  assert.ok(Math.abs(dr - 750.25) < 0.005, 'balanced');
+
+  const propose = await api(baseUrl, 'journal.propose', {
+    companyId: CO_BM, userEmail: 'agent@ct', requestId: 'req-1n-' + Date.now(),
+    lines, _match_meta: { settlement: m.body.data.settlement },
+  });
+  assert.equal(propose.status, 200, JSON.stringify(propose.body));
+  const approve = await api(baseUrl, 'journal.approve', { companyId: CO_BM, userEmail: 'owner@ct', proposalId: propose.body.data.proposalId });
+  assert.equal(approve.status, 200, JSON.stringify(approve.body));
+
+  const bills = await sql(baseUrl, srv.adminToken, `SELECT bill_id, status, amount_paid, amount FROM bills WHERE company_id='${CO_BM}' ORDER BY amount`);
+  for (const b of bills) {
+    assert.equal(String(b.status), 'paid', `bill ${b.bill_id} settled on approve`);
+    assert.ok(Math.abs(Number(b.amount_paid) - Number(b.amount)) < 0.005);
+  }
+  const pays = await sql(baseUrl, srv.adminToken, `SELECT payment_id, amount FROM payments WHERE company_id='${CO_BM}'`);
+  assert.equal(pays.length, 2, 'one payment row per bill, sharing the batch');
+  assert.ok(Math.abs(pays.reduce((s, p) => s + Number(p.amount), 0) - 750.25) < 0.005, 'payment rows sum to the bank amount');
+
+  // journal.reverse dates the reversal today (the current month), outside
+  // the seeded test period — give this company a period covering it.
+  const cover = await api(baseUrl, 'period.upsert', { companyId: CO_BM, period: { period_id: TD.nextMonthId, start_date: TD.nextMonthStart, end_date: TD.nextMonthEnd } });
+  assert.equal(cover.status, 200, JSON.stringify(cover.body));
+  const v = await api(baseUrl, 'payment.void', { companyId: CO_BM, userEmail: 'owner@ct', paymentId: pays[0].payment_id });
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  const after = await sql(baseUrl, srv.adminToken, `SELECT status, amount_paid FROM bills WHERE company_id='${CO_BM}'`);
+  for (const b of after) {
+    assert.equal(String(b.status), 'posted', 'multi-bill void restores every sibling bill');
+    assert.ok(Math.abs(Number(b.amount_paid)) < 0.005);
+  }
+});
+
 test('bank.match §4.4: foreign bill in-band but uncorroborated → no match (gate, not a confidence bonus)', async () => {
   const CO_BM = 'CBM3';
   const seeded = await seedCompany(baseUrl, CO_BM);

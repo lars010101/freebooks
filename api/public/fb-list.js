@@ -59,6 +59,9 @@
  *   isBlank(b) → true when a NEW buffer is untouched (vanishes on Esc)
  *   canAdd     false → NO add row: fixed-row registers (Company attributes)
  *              where every row is critical and create is impossible. Default true.
+ *   onNew()    → optional: the add row (click, i/Enter on it, ?new=1) calls this
+ *              instead of opening an inline new-row buffer — for lists whose
+ *              rows are created on another page (Bills → /bill/new, #312).
  *   same(b, s) → true when buffer matches saved row (dirty dropped)
  *   validate(d)→ error string | null
  *   editable(d)→ bool (default true); false = row never enters edit (ECB rates)
@@ -66,8 +69,7 @@
  *              default (edit; read-only tree row: fold/unfold; read-only flat
  *              row: no-op). A new (_isNew) or dirty row keeps the default, so
  *              Enter never navigates away from unsaved work. Bills uses it to
- *              open the bill's full page (#299); i still edits inline, Space
- *              still folds. Tree: d is the parent row. Enter's hint reads
+ *              open the bill's full page (#299); Space still folds. Tree: d is the parent row. Enter's hint reads
  *              'open' when set.
  *   deletable(d)→ bool (default true); false = x is a no-op on that row
  *   rowStyle(d)→ cssText for the <tr> (e.g. opacity for ECB rows)
@@ -1431,6 +1433,7 @@
 
     function newRow() {
       if (!canAdd) return; // fixed-row register (canAdd: false) — create is impossible
+      if (cfg.onNew) { cfg.onNew(); return; } // create happens elsewhere (Bills → /bill/new)
       if (editIdx >= 0) exitEdit();
       var key = '_new_' + (++newN);
       dirty[key] = Object.assign(cfg.blank(), { isNew: true, _isBill: !!cfg.tree });

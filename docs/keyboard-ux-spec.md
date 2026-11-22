@@ -18,11 +18,11 @@ a viewer plus a small human correction surface. Consequences for this spec:
   magnus ratification (P2-6 rebinding is dropped). *Ratified change
   2026-11-22 (#299): Payables' `I` (open in full editor) is retired. On the
   Bills list, Enter opens the bill's full page for every saved bill — the
-  full editor for a draft, the locked page otherwise — and `i` stays inline
-  edit (Enter = open, i = edit). A new or dirty row keeps Enter = edit, so
-  Enter never navigates away from unsaved work. FB.list `openRow` hook,
-  opt-in per list — other lists keep their Enter behaviour; Space still
-  folds everywhere.*
+  full editor for a draft, the locked page otherwise. FB.list `openRow`
+  hook, opt-in per list — other lists keep their Enter behaviour; Space
+  still folds everywhere. Ratified change 2026-11-22 (#312): the Bills list
+  is read-only — inline editing and its `i`/`a`/`w`/`~` verbs are removed
+  there; `+ Add bill` opens `/bill/new` (FB.list `onNew` hook).*
 - **The coverage gate is single-screen.** `test:keys` runs the full
   key-coverage assertions on journal-voucher only; every other route is
   smoke-checked (loads, zero uncaught JS errors). Per-screen exemption

@@ -1,5 +1,7 @@
 # Payables UX Specification
 
+> **2026-11-22 rev. 5 — the Bills list is read-only (#312, magnus).** Bills are created and edited only on the full bill page (`bill-edit.js`: `/bill/new`, `/bill/:id`). On the list: Enter opens the focused bill's page (editor for a draft, locked page otherwise), Space folds its lines, the `+ Add bill` row (and `?new=1`) opens `/bill/new`, `y` posts a saved draft or opens New Payment for a posted bill, `x` voids, `W` writes off. Inline editing, `i`, `a`, `w`, `~` and the Draft toggle are gone from the list (`~` keeps its framework fold alias). The NORMAL-mode table below reflects this; sections further down that describe inline INSERT editing of bills, the edit footer, the save chip and the `w`/`~` verbs are a **historical record** of the removed inline editor.
+
 > **2026-07-24 rev. 4 — Bills migrated onto `FB.list` (`tree: true`).** The bespoke Bills interaction machinery (render/draft/filter/nav/fold) is deleted; the Bills tab is now a declarative `FB.list.create(cfg)` call. This spec's Bills-specific sections now describe the framework-native behavior (see `fb-list-ux-spec.md`). The bill editor screen (`bill-edit.js`) and the bill-detail page remain separate. The pre-interim "Esc always saves / no cancel path" doctrine is **superseded** — `Esc` never saves; `w` is the only save path (FB.list §3 doctrine).
 >
 > **2026-09-06 — no longer separate.** `bill-detail.js` is merged into `bill-edit.js`: one file, one route (`/bill/:id`), mode driven by the loaded bill's status (draft = editable; anything else = locked, with a journal trail and void). See "Relationship to existing pages" below, updated accordingly.
@@ -25,20 +27,16 @@
 | l | Click tab label | Switch to right tab |
 | { | Click sidebar page | Previous sidebar page |
 | } | Click sidebar page | Next sidebar page |
-| Enter | Click a cell of an editable row | **Edit** — whole-bill INSERT on drafts (no-op on posted bills); create on the `+ Add bill` row |
+| Enter | Click the reference-number link | **Open** the bill's full page (`/bill/:id`: editor for a draft, locked page otherwise); on the `+ Add bill` row, open `/bill/new` |
 | Space | Click ▸/▾ fold icon on parent | **Expand/Collapse** — toggle the fold of the bill under the cursor (parent folds itself; a child folds its parent); inert on the add row (vim fold semantics). `~` is a silent alias for Space when no page-level `~` binding is active (PR #288) |
-| i | Click a cell of an editable row | Enter INSERT mode (opens entire draft bill for editing) |
-| I | — | Open the focused bill in the full-page editor (`bill-edit.js`) — draft (editable) or posted/void (locked, read-only with journal trail) alike, since the `bill-detail.js` merge (2026-09-06) removed the draft-only guard |
-| a | — | Append new child line to the focused draft bill |
-| x | Click delete icon (on hover) | Delete draft bill / delete current child line / void posted bill (confirm) / void payment (on a payment-history child) |
-| ~ | Click the Draft toggle | Flip the focused bill's Draft flag (default off) — footer button, `keyboard-ux-spec.md` §5's toggle-verb doctrine |
-| w | Click "Save" | Commit the focused bill — posts (`bill.create`/`bill.draft.post`) when Draft is off, saves a draft (`bill.draft.save`) when it's on |
-| y | Click "Pay" affordance | Advance a saved bill — draft → post; posted/partial → New Payment (`/payment/new`), scoped to this bill |
+| x | Click delete icon (on hover) | Void posted bill (confirm) / void payment (on a payment-history child) |
+| y | Click "Pay" affordance | Advance a saved bill — draft → post (`bill.draft.post`); posted/partial → New Payment (`/payment/new`), scoped to this bill |
+| W | Click the ≈ affordance | Write off a small remaining balance on a posted bill |
 | G | Scroll to bottom | Jump to last row (= add row) |
 | gg | Scroll to top | Scroll to top |
 | Esc | — | No-op (already in NORMAL) |
 
-`o`/`O` are **retired** on Bills (2026-07-24) — the `+ Add bill` row is the only create path; the full-page editor is reached via `I` or the reference-number link on the row. (Double-click is not handled — the 2026-07 double-click edit was deleted with the bespoke machinery in the 2026-07-24 `FB.list` migration; a single click on an editable row's cell now enters inline edit.)
+`o`/`O` are **retired** on Bills (2026-07-24). `i`, `a`, `w` and the `~` Draft toggle are **retired** with the inline editor (2026-11-22, #312). The `+ Add bill` row opens `/bill/new`; the full page is reached with Enter or the reference-number link on the row.
 
 Row selection highlights the complete row (parent or child). No cell-level cursor in NORMAL mode.
 
@@ -455,7 +453,7 @@ The popup is plain DOM — headless-verifiable, closing the verifiability gap th
 
 ## P1-4 — Full-page bill editor (SHIPPED 2026-07-22 — bill-new.js deleted, −1490 LOC)
 
-> **Amended 2026-10-03 — this section is a historical design record; parts are stale.** (1) The entry points below are wrong: there is no `+ Bill` toolbar link and no `o`/`O` binding on the Bills list. New bills start from the topbar `+ New` menu → "Bill from Supplier" (`/bill/new`) or the list's `+ Add bill` row; a saved draft opens in the full editor from its reference-number link or with Enter (the `I` key was retired 2026-11-22, #299 — Enter opens any saved bill's full page, `i` edits a draft inline). (2) The editor's interaction model was superseded: `bill-edit.js` runs on `FB.form` (NORMAL at rest, `i`/Enter to edit, `w` save, Esc never saves, `a`/`x` add/delete line — `keyboard-ux-spec.md` §8) and Draft-vs-post is the `~` Draft toggle (`bill-post-payment-consolidation-spec.md`), not "Esc saves, `p` posts". (3) The reference-number link on a Bills row (`payables-bills.js`) opens the editor; the originally specified "double-click opens the full editor" no longer exists (removed with the bespoke Bills machinery on 2026-07-24).
+> **Amended 2026-10-03 — this section is a historical design record; parts are stale.** (1) The entry points below are wrong: there is no `+ Bill` toolbar link and no `o`/`O` binding on the Bills list. New bills start from the topbar `+ New` menu → "Bill from Supplier" (`/bill/new`) or the list's `+ Add bill` row; a saved draft opens in the full editor from its reference-number link or with Enter (the `I` key was retired 2026-11-22, #299 — Enter opens any saved bill's full page; since #312 the list is read-only). (2) The editor's interaction model was superseded: `bill-edit.js` runs on `FB.form` (NORMAL at rest, `i`/Enter to edit, `w` save, Esc never saves, `a`/`x` add/delete line — `keyboard-ux-spec.md` §8) and Draft-vs-post is the `~` Draft toggle (`bill-post-payment-consolidation-spec.md`), not "Esc saves, `p` posts". (3) The reference-number link on a Bills row (`payables-bills.js`) opens the editor; the originally specified "double-click opens the full editor" no longer exists (removed with the bespoke Bills machinery on 2026-07-24).
 
 ### Purpose
 
@@ -512,7 +510,7 @@ The full-page editor is the **escape hatch, not a second philosophy**. Same mode
 ### Decisions (magnus, 2026-07-22)
 
 1. **Entry points:** `+ Bill` toolbar link → the editor (create path). `o` in the Bills list stays the default quick path (tree-table INSERT). `O` (shift-o) from the Bills tab → editor, new bill. *(Superseded 2026-10-03: the toolbar link and `O` were never kept; see the amendment at the top of this section.)*
-2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity was specified as **double-click opens the full editor** (magnus, 2026-07-22) — *superseded 2026-10-03: no double-click handler exists (removed in the 2026-07-24 `FB.list` migration, `2dc422b`); a single click edits inline and the full editor opens from the reference-number link or Enter (`I` was retired 2026-11-22, #299; `i` edits inline).*
+2. **`i` always stays inline** (no line-count threshold). Editor entry for an existing draft: **`I` (shift-i)** on the focused draft row. Mouse parity was specified as **double-click opens the full editor** (magnus, 2026-07-22) — *superseded 2026-10-03: no double-click handler exists (removed in the 2026-07-24 `FB.list` migration, `2dc422b`); a single click edits inline and the full editor opens from the reference-number link or Enter (`I` was retired 2026-11-22, #299; the list has been read-only since #312).*
 3. **Attachments on unsaved bills stage client-side** until the first save binds them (bill-new's reenter behavior, minus its FX hackery).
 4. **Per-line cost/profit centers: INCLUDED** (reversing the draft's skip). The ledger already carries them — `journal_entries.cost_center/profit_center`, bill-header fields, `centers` master data, and `createBill` threads header centers into journal lines. Editor adds a per-line center column (FB.dropdown over `center.list`, default from header, overridable); backend extends the `draft_lines` line shape with `cost_center`/`profit_center` and maps line-level centers onto journal lines at post (falling back to header centers when a line has none).
 

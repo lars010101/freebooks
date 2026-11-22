@@ -13,7 +13,8 @@ No open items remain (2026-11-22).
 
 - **Payables `I` key (#299)** — retired 2026-11-22 (magnus). Enter now
   opens any saved bill's full page (draft → full editor, otherwise the
-  locked page) and `i` edits a draft inline (`openRow`, `payables-bills.js`).
+  locked page) (`openRow`, `payables-bills.js`). Since #312 (same day) the
+  Bills list is read-only, so `i` no longer edits inline there.
   See `keyboard-ux-spec.md` §0.
 
 - **Mouse "write" chip bypassing the draft-save kill** — moot: the Draft

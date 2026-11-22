@@ -25,8 +25,8 @@ unchanged" claim (§8).
 `api/src/pages/common.js`) and the per-page `+ Journal Entry` topbar button.
 **Retains unchanged:** `/` search (`fb-core.js` `FB.search`); `:` command-bar
 behavior does NOT survive — see the 2026-09-01 update above — the period
-control's resolved-label rule (`docs/global-period-selector-chrome-spec.md`),
-the notification bell's existing data source (`docs/fx-automation-spec.md`
+control's resolved-label rule (`docs/archive/global-period-selector-chrome-spec.md`),
+the notification bell's existing data source (`docs/archive/fx-automation-spec.md`
 §7), the company switcher (`fbToggleCompany`, `common.js`).
 **Explicitly deferred, not decided here:** killing the `:show` alias — since
 resolved elsewhere: `global-search-spec.md` §0 retired `:show` outright, no
@@ -103,7 +103,7 @@ not an oversight.
 ## 2. Company switcher and period selector
 
 No behavior change. `fbToggleCompany` (`common.js`) and the period control
-(`docs/global-period-selector-chrome-spec.md`) are reused verbatim, just
+(`docs/archive/global-period-selector-chrome-spec.md`) are reused verbatim, just
 repositioned into a shared top-left cluster (mirroring GitHub's org/repo
 breadcrumb position). The period control's collapsed-label rule — a period
 name for a predefined period, `start – end` for a custom range — is already

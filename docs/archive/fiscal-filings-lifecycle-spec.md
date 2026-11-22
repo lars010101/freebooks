@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28 · **Status:** RATIFIED 2026-08-29
 **Scope:** Give the Fiscal page's Filings tab (`api/src/pages/fiscal.js`) a real write surface: mark a filing instance submitted (with a frozen, audit-safe copy of what was actually filed), unmark it, override its due date, and record year-over-year tax attributes that currently have no capture path anywhere in freeBooks (INK2 loss carryforward, periodiseringsfond tranche schedule, Annual Report governance facts). Documentation only — no code changes ship with this spec; it is the design for a later implementation pass.
-**Companions:** `docs/reports-dashboard-spec.md` (§5–6 froze the in-app Annual Report renderer 2026-07-30 — *"read-only viewer only, no further development... Gredor owns SE årsredovisning production/submission via the SIE 4 export"* — and explicitly deferred *"Submission-status tracking comes later, on top of the registry."* This spec is that deferred work), `docs/ia-restructure-2-spec.md` (§3.3 — the Filings tab as it exists today: a pure rename of the old "Deadlines" tab, flat, no write surface).
+**Companions:** `docs/archive/reports-dashboard-spec.md` (§5–6 froze the in-app Annual Report renderer 2026-07-30 — *"read-only viewer only, no further development... Gredor owns SE årsredovisning production/submission via the SIE 4 export"* — and explicitly deferred *"Submission-status tracking comes later, on top of the registry."* This spec is that deferred work), `docs/archive/ia-restructure-2-spec.md` (§3.3 — the Filings tab as it exists today: a pure rename of the old "Deadlines" tab, flat, no write surface).
 **Consumers:** `api/src/periods-page-service.js` (new actions, `filing.list` extensions), `api/src/filings.js` (extracted lock-check helper, reused compute/emit functions), `api/src/action-catalog.js` (new catalog entries), `api/src/index.js` (`period.list` bug fix), `api/src/attachments.js` (reused unchanged — generic entity-keyed attachment store), `api/src/pages/fiscal.js` (UI), `db/jurisdictions/SE/filings/{ink2,annual-report}.json`, `db/jurisdictions/SG/filings/annual-report.json`.
 
 ---
@@ -139,7 +139,7 @@ Part of `filing.mark_submitted` when `key` is `ink2@...` and `method` succeeds: 
 - `db/jurisdictions/SE/filings/vat-return.json`: unchanged.
 - `tests/jurisdiction-packs.mjs` does not whitelist descriptor fields — `methods` needs no linter change, but the suite should be re-run to confirm.
 
-In `listFilings()` (`api/src/periods-page-service.js`, the `annual-report` branch around lines 170–178): remove the `{ kind: 'view', label: 'View annual report', href: '.../report?type=ar...' }` artifact. **Keep the SIE 4 export artifact unchanged** (same branch, gated on `integrations.sie.export`) — it's the ledger→Gredor handoff format (per `docs/reports-dashboard-spec.md` line 41/48), unrelated to the in-app PDF renderer being dropped.
+In `listFilings()` (`api/src/periods-page-service.js`, the `annual-report` branch around lines 170–178): remove the `{ kind: 'view', label: 'View annual report', href: '.../report?type=ar...' }` artifact. **Keep the SIE 4 export artifact unchanged** (same branch, gated on `integrations.sie.export`) — it's the ledger→Gredor handoff format (per `docs/archive/reports-dashboard-spec.md` line 41/48), unrelated to the in-app PDF renderer being dropped.
 
 ---
 

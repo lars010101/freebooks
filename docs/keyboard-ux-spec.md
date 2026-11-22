@@ -632,7 +632,7 @@ property on the iframe document.
 - `?` overlay GLOBAL section (chrome keys: g-map, `{`/`}`, `h`/`l`, `/`) —
   ~~the overlay currently documents the active page set only.~~
   **RESOLVED** (PRs #283–#286): built as NAVIGATION + ACTIONS two-column
-  layout per `docs/help-overlay-chrome-spec.md` (v3). NAVIGATION renders
+  layout per `docs/archive/help-overlay-chrome-spec.md` (v3). NAVIGATION renders
   static chrome (`/ h/l j/k gg/G` + g-map entries with "Go to " prefix)
   independently of the active page's bindings; ACTIONS shows the page's
   NORMAL-mode bindings under a page-name heading. No INSERT column; Esc,

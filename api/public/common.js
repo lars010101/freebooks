@@ -403,7 +403,7 @@
       return;
     }
 
-    // ── Edit-active guard (docs/settings-ux-spec.md §2) ─────────────────────
+    // ── Edit-active guard (docs/archive/settings-ux-spec.md §2) ─────────────────────
     // While any page has a row edit open (window.fbEditActive), ALL read-mode
     // verbs are inert — regardless of focus. Closes the checkbox/select-focus
     // hole the text-input guard cannot see (e.g. Locked checkbox mid-edit).

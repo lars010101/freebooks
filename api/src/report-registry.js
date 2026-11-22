@@ -1,6 +1,6 @@
 'use strict';
 
-// ── Report registry (docs/reports-dashboard-spec.md §4) ─────────────────────
+// ── Report registry (docs/archive/reports-dashboard-spec.md §4) ─────────────────────
 // THE single declarative list of reports. Consumed by:
 //   - Statements hub + Books hub (pages/reports-hub.js, split 2026-08-27)
 //   - Dashboard drill-through links (pages/company.js)
@@ -20,7 +20,7 @@
 //   'journal' for voucher-register/tb/gl/journal; labels relabeled (Transaction
 //   Register → Transactions, Journal Line Listing → Line items). integrity's
 //   page moves to 'accounting' (bespoke fetch-rendered tab there, not a
-//   report-hub page — see docs/ia-restructure-3-spec.md §3.3) and its label
+//   report-hub page — see docs/archive/ia-restructure-3-spec.md §3.3) and its label
 //   shortens to "Integrity". SIE export gate follows the page-key rename in
 //   reports-hub.js (pageKey === 'journal').
 
@@ -41,7 +41,7 @@ const REPORT_REGISTRY = [
   { id: 'gl',        label: 'General Ledger',      category: 'audit', page: 'journal', multiperiod: false, needsStart: true  },
   // Integrity: relocated to Accounting (a bespoke fetch-rendered tab, not a
   // report-hub page) — page value doesn't select a hub's dropdown/tabs, it's
-  // read directly by id. See docs/ia-restructure-3-spec.md §3.3.
+  // read directly by id. See docs/archive/ia-restructure-3-spec.md §3.3.
   { id: 'integrity', label: 'Integrity',           category: 'audit', page: 'accounting', multiperiod: false, needsStart: true  },
 ];
 

@@ -238,7 +238,7 @@ to live in the watcher's environment.
 
 ### 4.5 Bank statements (agent-processed via cascade)
 
-Bank statements flow through the same `attachment.upload → event → agent → journal.propose` pipeline as other documents. The agent runs the confidence/evidence cascade defined in `docs/bank-matching-spec.md` and proposes journal entries for each statement line.
+Bank statements flow through the same `attachment.upload → event → agent → journal.propose` pipeline as other documents. The agent runs the confidence/evidence cascade defined in `docs/archive/bank-matching-spec.md` and proposes journal entries for each statement line.
 
 **Inbound:** drop the statement (CSV or PDF) into `~/freebooks-inbox/bank/`. The watcher (§4.3) uploads it with `entityType: "bank_statement"` and fires `attachment.uploaded`. Bank API integration is out of scope for v1 — manual download + drop-folder is the supported path.
 

@@ -68,7 +68,7 @@
 //   Integrity Check tab removed (→ Accounting) and SIE export moved here.
 //   Statements' and Journal's report pickers become tab strips (fetch-based,
 //   iframe removed). Accounting gains a 5th "Integrity" tab. Clean cutover,
-//   no redirect — see docs/ia-restructure-3-spec.md.
+//   no redirect — see docs/archive/ia-restructure-3-spec.md.
 // Receivables dropped 2026-08-05: sidebar entry + gKey 'v' removed; route + page handler deleted.
 // Bank page dropped 2026-08-09 (issue #137): sidebar entry + gKey 'b' removed; page modules
 //   (pages/bank.js, pages/bank-import.js) deleted. api/src/bank.js server handlers kept
@@ -103,7 +103,7 @@ const ROUTES = [
   // IA restructure 3 (2026-08-30): Books renamed Journal (gKey `b`→`j`, `g b`
   //   freed, unclaimed). Ledger/transactional tooling: Transactions · Line
   //   items · Trial Balance · General Ledger. Integrity moved to Accounting;
-  //   SIE export moved here (docs/ia-restructure-3-spec.md §3.2).
+  //   SIE export moved here (docs/archive/ia-restructure-3-spec.md §3.2).
   { key: 'journal',        route: '/:company/journal',     label: 'Journal',         icon: '📈', sidebar: true,  gKey: 'j',  palette: true,  absolute: false, dateRelevance: 'none' },
   // calendar-reminders-documents-spec.md §2: Fiscal renamed Calendar, gKey
   //   moved from `f` to `c` (freed by the company switcher moving to `w`) —

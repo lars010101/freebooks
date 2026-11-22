@@ -688,7 +688,7 @@ const ACTIONS = {
     description: 'Get agent pipeline status (running/stopped, feed watcher state).',
   },
 
-  // ── Chat with AI (docs/chat-with-ai-spec.md) ────────────────────────────
+  // ── Chat with AI (docs/archive/chat-with-ai-spec.md) ────────────────────────────
   // None of these are agentWritable — this is a human-facing surface; the
   // automated agent loop has its own separate tier-4 path and does not use
   // chat. Role floor data_entry: read Q&A doesn't strictly need write

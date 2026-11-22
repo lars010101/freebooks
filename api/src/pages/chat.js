@@ -1,6 +1,6 @@
 'use strict';
 /**
- * freeBooks — Chat with AI (docs/chat-with-ai-spec.md)
+ * freeBooks — Chat with AI (docs/archive/chat-with-ai-spec.md)
  *
  * Plain fetch + render page, not FB.list/FB.form — a message thread has no
  * list/form shape. Consent cards (§2c) render inline in the thread itself,

@@ -287,7 +287,7 @@ function mountReportRoutes(app) {
   // never built into a report) and its only live referrer — the unrouted dead
   // Dashboard page (pages/company.js, orphaned since Dashboard was dropped
   // 2026-08-03) — are deleted outright, not repointed: no reachable code links
-  // to /bank today. (docs/ia-restructure-3-spec.md §2.2)
+  // to /bank today. (docs/archive/ia-restructure-3-spec.md §2.2)
   // Bank revived (two-way-payments-prep): Payments + Reconciliation tabs — a
   // different scope than the old page (no import wizard; imports stay
   // agent/Inbox-only, per the note above). New pages/bank.js, no relation to

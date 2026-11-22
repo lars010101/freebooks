@@ -21,7 +21,7 @@ Ctrl/Cmd probe, and relabeled Space/Enter.
 **Depends on:** `fb-core.js`'s `help` module (`open()`, `_rows()`,
 `_groupHints()`), `window.FB_ROUTES`, the active page's `FB.keys`
 binding table.
-**Deferred, tracked separately:** `docs/topbar-chrome-spec.md` §7 also
+**Deferred, tracked separately:** `docs/archive/topbar-chrome-spec.md` §7 also
 deferred this same overlay restructure and `:show`'s fate together — this
 document resolves only the overlay; `:show` remains undecided.
 **2026-09-01 update:** the `:` Command row is removed from the NAVIGATION
@@ -220,7 +220,7 @@ render, per the always-open behavior above. v2 inherits this fix unchanged.
 
 ## 4. Explicitly out of scope
 
-- `:show`'s fate — tracked in `docs/topbar-chrome-spec.md` §7, unresolved.
+- `:show`'s fate — tracked in `docs/archive/topbar-chrome-spec.md` §7, unresolved.
 - Any change to `?`'s trigger guards (NORMAL-mode-only, not-while-typing) —
   unchanged from `payables-ux-spec.md` P1-6.
 - Showing INSERT bindings anywhere — deliberately removed (§2).
@@ -244,4 +244,4 @@ render, per the always-open behavior above. v2 inherits this fix unchanged.
   `.fb-keys-main` (flex container) + `.fb-keys-nav` (left, `flex: 0 0 auto`)
   + `.fb-keys-actions` (right, `flex: 1; min-width: 0`); `.fb-keys-global`
   removed.
-- `docs/help-overlay-chrome-spec.md` — this document (v3 layout).
+- `docs/archive/help-overlay-chrome-spec.md` — this document (v3 layout).

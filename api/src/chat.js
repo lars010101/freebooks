@@ -1,6 +1,6 @@
 'use strict';
 /**
- * freeBooks — Chat with AI (docs/chat-with-ai-spec.md)
+ * freeBooks — Chat with AI (docs/archive/chat-with-ai-spec.md)
  *
  * A turn is two LLM calls (category selection, then answer) with a possible
  * human-consent pause in between (§2). No company data reaches the LLM

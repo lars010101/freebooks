@@ -232,7 +232,7 @@ Because `cost_center`/`profit_center` have been populated independently on `jour
 
 ### 6a. Settings → Master Data → Cost/Profit Centers (the page in your screenshot)
 
-Built on `fb-list.js` (vim-modal list) + `fb-form.js` (zones/cursor form), per `docs/UI.md` / `docs/settings-ux-spec.md` conventions. Add one column to the list and one field to the "+ Add entry" form:
+Built on `fb-list.js` (vim-modal list) + `fb-form.js` (zones/cursor form), per `docs/UI.md` / `docs/archive/settings-ux-spec.md` conventions. Add one column to the list and one field to the "+ Add entry" form:
 
 | Column | Behavior |
 |---|---|

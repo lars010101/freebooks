@@ -1747,7 +1747,7 @@ async function handleSettings(ctx, action) {
   if (action === 'period.delete') {
     const { periodId } = body;
     if (!periodId) throw Object.assign(new Error('periodId required'), { code: 'INVALID_INPUT' });
-    // Referenced-check (docs/settings-ux-spec.md §5): periods relate to journal
+    // Referenced-check (docs/archive/settings-ux-spec.md §5): periods relate to journal
     // entries by date-range containment — refuse to delete a period whose range
     // contains entries, or the period-lock structure is orphaned.
     const prow = await query(

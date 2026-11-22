@@ -15,7 +15,7 @@ const { packIntegration } = require('../jurisdiction-packs');
  * report is multiperiod:false), and optional per-tab label overrides (Journal
  * relabels two report ids without touching REPORT_REGISTRY, §3.2).
  *
- * IA restructure 3 (2026-08-30, docs/ia-restructure-3-spec.md §1): the
+ * IA restructure 3 (2026-08-30, docs/archive/ia-restructure-3-spec.md §1): the
  * report-type `<select>` + single iframe are replaced by a tab strip + a
  * fetch-and-cache fragment loader. Fetching the full report page and
  * extracting its `.page` element client-side avoids a nested-document
@@ -42,7 +42,7 @@ async function buildHubPage(req, res, opts) {
   // that icon's own /sie-status check gates it on the jurisdiction pack the
   // same way /report?type=sie does server-side. Nothing to compute here.
   // Tab strip + client behavior driven by the report registry
-  // (docs/reports-dashboard-spec.md §4) — add a report there, not here.
+  // (docs/archive/reports-dashboard-spec.md §4) — add a report there, not here.
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const pageReports = reportsByPage(pageKey);
   const tabsHtml = pageReports.map((r, i) =>
@@ -323,7 +323,7 @@ ${layoutEnd()}
      nested-document navigation, no duplicate <head>/CSS parse, and a plain
      in-memory cache keyed by the exact request URL means revisiting an
      already-fetched type+period+step combination renders instantly.
-     docs/ia-restructure-3-spec.md §1. */
+     docs/archive/ia-restructure-3-spec.md §1. */
   var _fragCache = {};
   var _reqSeq = 0;
 
@@ -543,7 +543,7 @@ async function handleStatementsHubPage(req, res) {
 /**
  * Journal hub — ledger/transactional tooling (Transactions, Line items,
  * Trial Balance, General Ledger). Renamed from Books, Integrity relocated to
- * Accounting, SIE export moved here — docs/ia-restructure-3-spec.md §3.2.
+ * Accounting, SIE export moved here — docs/archive/ia-restructure-3-spec.md §3.2.
  * No MoM/YoY chrome — every report on this page is multiperiod:false.
  */
 async function handleJournalHubPage(req, res) {

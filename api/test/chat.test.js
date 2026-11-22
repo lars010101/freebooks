@@ -1,6 +1,6 @@
 'use strict';
 /**
- * freeBooks — Chat with AI tests (docs/chat-with-ai-spec.md)
+ * freeBooks — Chat with AI tests (docs/archive/chat-with-ai-spec.md)
  *
  * Black-box over the action API for the deterministic/gated parts of the
  * flow: the LLM-unreachable error path (no llm_endpoint_url configured —

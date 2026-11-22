@@ -351,7 +351,7 @@ ${commonStyle()}
      standard), so the column headers start at the identical x/y. This
      reverses the 2026-09-17 white-card (QBO/Xero) look; screen-only —
      print/PDF use the standalone report page's own CSS.
-     docs/ia-restructure-3-spec.md §1. */
+     docs/archive/ia-restructure-3-spec.md §1. */
   .rpt-embed { border:none; width:100%; min-height:500px; display:block; }
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
@@ -573,7 +573,7 @@ function showTab(t) {
 // Load (or reload) a report fragment for the Aging/Control tabs — fetches the
 // standalone report page and extracts its .page element client-side
 // (DOMParser), same technique as reports-hub.js and accounting.js's Integrity
-// tab (docs/ia-restructure-3-spec.md §1). No nested-document navigation, no
+// tab (docs/archive/ia-restructure-3-spec.md §1). No nested-document navigation, no
 // duplicate <head>/CSS parse, cached per URL for the session. Reads the
 // as-of date from FB.period.get().end — the server requires ?end= for all
 // report types including as-of reports (ap-aging, ap-control). If no period

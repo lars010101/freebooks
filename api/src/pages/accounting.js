@@ -42,7 +42,7 @@ ${commonStyle()}
      4px 6px, no table margin, so the headers start at the same x/y as a
      sibling table's. Converted 2026-11-22 from the 2026-09-17 QBO/Xero
      white card. Screen-only — print/PDF use the standalone report's CSS.
-     docs/ia-restructure-3-spec.md §3.3. */
+     docs/archive/ia-restructure-3-spec.md §3.3. */
   .rpt-embed { display:block; }
   .rpt-embed .page { padding:0; max-width:none; }
   .rpt-embed .header { display:none; } /* period/company header — redundant with this page's own H1 */
@@ -111,7 +111,7 @@ ${commonStyle()}
   </div>
 
   <!-- INTEGRITY TAB — fetched report fragment (report?type=integrity), not
-       FB.list: nothing here to edit/add/delete. docs/ia-restructure-3-spec.md §3.3 -->
+       FB.list: nothing here to edit/add/delete. docs/archive/ia-restructure-3-spec.md §3.3 -->
   <div id="tab-integrity" class="tab-panel">
     <div id="integrity-body" class="rpt-embed"><p class="rpt-embed-msg">Loading…</p></div>
   </div>
@@ -225,7 +225,7 @@ function updateDownloadHooks(t) {
 }
 
 // ========== INTEGRITY — fetched report fragment, not FB.list ==========
-// Same fetch-and-extract technique as reports-hub.js (docs/ia-restructure-3-spec.md
+// Same fetch-and-extract technique as reports-hub.js (docs/archive/ia-restructure-3-spec.md
 // §1/§3.3): fetch the standalone report page, pull out its .page element via
 // DOMParser, inject the markup — no iframe. Uses the globally-selected period
 // (FB.period) even though this page's dateRelevance is 'none' for its other

@@ -150,7 +150,7 @@ function showTab(t) {
   var cur = document.querySelector('.tab-panel.active');
   var curTab = cur ? cur.id.replace('tab-','') : '';
   if (curTab && curTab !== t) {
-    // Modal doctrine (docs/settings-ux-spec.md §4): dirty rows in ANY FB.list
+    // Modal doctrine (docs/archive/settings-ux-spec.md §4): dirty rows in ANY FB.list
     // tab route through the Save/Discard/Stay modal. Buffers are page-global,
     // so the guard fires when leaving ANY tab.
     if (window.FB && FB.list && FB.list.anyDirty()) {

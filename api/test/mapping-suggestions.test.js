@@ -2,7 +2,7 @@
 /**
  * freeBooks — bank-mapping-suggestions-spec contract tests.
  *
- * Tests the wiring changes from docs/bank-mapping-suggestions-spec.md:
+ * Tests the wiring changes from docs/archive/bank-mapping-suggestions-spec.md:
  * - §1: matching_history.record on approve/reject
  * - §2: tier 3.5 historical match
  * - §3.1: crystallization on tier-4 approval

@@ -17,17 +17,17 @@ Open-source, self-hosted double-entry accounting for small Swedish companies (VA
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
 - **Accounts Payable** — partner master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, multi-bill settlement (one payment allocated across several open bills from the same vendor/currency, atomic, whole-batch void — issue #131), and AP Aging report
-- **Withholding tax (WHT)** — a plain company setting (`wht_tracking`, not jurisdiction-gated, mirroring `fx_tracking`), not a Singapore-only feature though motivated by IRAS S45. Booked at posting: the withheld amount reduces the AP credit and books to a WHT payable GL account instead; `bills.amount`/`amount_paid` become net-of-WHT so payment matching reconciles against what actually reaches the vendor. Remittance to the tax authority is a plain manual journal entry against that liability account — no dedicated subledger or filing tracker. Spec: `docs/bill-withholding-tax-spec.md`.
-- **Partner proposal & unification** — partners unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/partner-proposal-spec.md`.
+- **Withholding tax (WHT)** — a plain company setting (`wht_tracking`, not jurisdiction-gated, mirroring `fx_tracking`), not a Singapore-only feature though motivated by IRAS S45. Booked at posting: the withheld amount reduces the AP credit and books to a WHT payable GL account instead; `bills.amount`/`amount_paid` become net-of-WHT so payment matching reconciles against what actually reaches the vendor. Remittance to the tax authority is a plain manual journal entry against that liability account — no dedicated subledger or filing tracker. Spec: `docs/archive/bill-withholding-tax-spec.md`.
+- **Partner proposal & unification** — partners unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/archive/partner-proposal-spec.md`.
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
-- **Bank statement processing** — statements drop into the agent pipeline (§ below), which runs a **four-tier matching cascade** (spec: `docs/bank-matching-spec.md`) and proposes journal entries for human review in the Inbox; cleared/uncleared reconciliation against the bank's statement balance is a dedicated report (`type=reconciliation`). The old manual CSV-upload wizard (`bank.process`/`bank.approve`) has been removed (issue #260) — agent ingestion is the only import path:
+- **Bank statement processing** — statements drop into the agent pipeline (§ below), which runs a **four-tier matching cascade** (spec: `docs/archive/bank-matching-spec.md`) and proposes journal entries for human review in the Inbox; cleared/uncleared reconciliation against the bank's statement balance is a dedicated report (`type=reconciliation`). The old manual CSV-upload wizard (`bank.process`/`bank.approve`) has been removed (issue #260) — agent ingestion is the only import path:
   - **Tier 1** — learned rules (`bank_mappings`): pattern → offset account/VAT code, with `amount_sign` direction filtering and longest-match-wins specificity scoring.
   - **Tier 2** — open-item matching against unpaid bills and partner balances (amount-tolerance, 1:1/1:N/N:1 cardinality, counterparty evidence).
   - **Tier 3** — trigram master-data match against chart of accounts and partners.
   - **Tier 3.5** — historical outcome match against `matching_history` (`approved_unedited` outcomes) — "how was this same description posted last time?"
   - **Tier 4** — LLM reasoning for residual unmatched lines.
-- **Self-contained in-process agent pipeline (B9)** — folder watcher + agent loop run inside the Express server (no external scripts, no HTTP self-calls). Watches `inbox/{company_id}/{type}/`, calls `bank.match` → `journal.propose` → tier-4 LLM directly via `dispatchAction`. The in-process loop is the sole agent path — the legacy `scripts/freebooks-agent-loop.js` was removed because its bill extraction and tier-4 LLM implementations were never completed (placeholders only); `scripts/freebooks-feed-watch.sh` remains as a fallback folder watcher. See `docs/b9-self-contained-agent-spec.md`.
-- **Mapping-suggestions learning loop (PR #90)** — approved/rejected proposals record outcomes in `matching_history`; tier 3.5 consults prior outcomes; unedited tier-4 approvals crystallize into `mapping_suggestions`; a throttled retrospective sweep finds recurring unruled patterns and suggests rules; `detectMappingConflicts` checks duplicate/contradiction/shadowing at suggest and approve time. Spec: `docs/bank-mapping-suggestions-spec.md`.
+- **Self-contained in-process agent pipeline (B9)** — folder watcher + agent loop run inside the Express server (no external scripts, no HTTP self-calls). Watches `inbox/{company_id}/{type}/`, calls `bank.match` → `journal.propose` → tier-4 LLM directly via `dispatchAction`. The in-process loop is the sole agent path — the legacy `scripts/freebooks-agent-loop.js` was removed because its bill extraction and tier-4 LLM implementations were never completed (placeholders only); `scripts/freebooks-feed-watch.sh` remains as a fallback folder watcher. See `docs/archive/b9-self-contained-agent-spec.md`.
+- **Mapping-suggestions learning loop (PR #90)** — approved/rejected proposals record outcomes in `matching_history`; tier 3.5 consults prior outcomes; unedited tier-4 approvals crystallize into `mapping_suggestions`; a throttled retrospective sweep finds recurring unruled patterns and suggests rules; `detectMappingConflicts` checks duplicate/contradiction/shadowing at suggest and approve time. Spec: `docs/archive/bank-mapping-suggestions-spec.md`.
 - **Agent-first operating model (Phase A)** — agents prepare, humans approve (spec: `docs/agent-readiness-spec.md`):
   - **Journal proposals** — agent calls `journal.propose` → human reviews/approves/rejects in the unified Inbox queue (`y`/`x`); approve posts the journal; reject rolls back.
   - **Inbox review queue** — dedicated `g i` Inbox page aggregates action items that need an in-place decision (Class A pre-ledger approvals on `journal_proposals`, Class B decide-here items: orphaned files, mapping suggestions, input rejections, agent-proposed partners). Items that only need a "go look at this" nudge — bills due/overdue, stale reconciliation, FX-rate gaps, reminders due — surface in the notifications bell instead (🔔, top bar), each linking straight to the relevant page.
@@ -43,9 +43,9 @@ Open-source, self-hosted double-entry accounting for small Swedish companies (VA
 - **File attachments** — attach PDFs, images, and documents to bills, journals, and proposals; stored on the local filesystem (sha256 dedupe, pdf/jpg/png whitelist, 15 MB cap for proposal underlag)
 - **Multi-company** — isolated books per company, each with its own chart of accounts, tax codes, periods, and settings
 - **Pluggable FX providers** — ECB and OpenExchangeRates shipped; add a provider by dropping a file into `api/src/fxProviders/`
-- **FX rate automation** — provider `fetchRange` batch-fetches historical rates; period-create backfill hook auto-fills gaps; coverage tracking compares period days vs provider publication days; a 6h gap scanner surfaces missing rates via the notifications bell. Spec: `docs/fx-automation-spec.md`.
+- **FX rate automation** — provider `fetchRange` batch-fetches historical rates; period-create backfill hook auto-fills gaps; coverage tracking compares period days vs provider publication days; a 6h gap scanner surfaces missing rates via the notifications bell. Spec: `docs/archive/fx-automation-spec.md`.
 - **Notifications bell** — a general "go look at this" alert channel (🔔, top bar; `notifications` table, dedupe by `issue_key`, re-raises once read if the condition persists), not FX-specific: FX-rate gaps, reminders due/overdue (Calendar), missing/orphaned attachment files, and bills due/overdue and stale bank reconciliation (both linking straight to the relevant bill or account) all raise through the same mechanism. Each alert is a periodic scanner — `fx-scanner.js`, `reminder-scanner.js`, `attachment-integrity-scanner.js`, `bills-due-scanner.js`, `reconciliation-scanner.js` — run with the attachment and chat-turn GCs by one scheduler (`api/src/scheduler.js`, registered in `index.js`): at start, then on each job's interval, with per-job error logging. `FREEBOOKS_SCHEDULER=off` disables them all.
-- **Navigation** — no persistent sidebar. `/` opens global search (ranked, always-global; navigates to pages/reports or deep-links to a specific journal/bill/partner/account) and `+` opens a fixed New-item menu (Journal Entry, Bill, Payment); `g`-prefix go-to motions and per-page `FB.keys`/`FB.list`/`FB.form` vim-modal bindings remain the primary keyboard path. The earlier `:` command-bar system was fully retired 2026-09-01. Spec: `docs/global-search-spec.md`.
+- **Navigation** — no persistent sidebar. `/` opens global search (ranked, always-global; navigates to pages/reports or deep-links to a specific journal/bill/partner/account) and `+` opens a fixed New-item menu (Journal Entry, Bill, Payment); `g`-prefix go-to motions and per-page `FB.keys`/`FB.list`/`FB.form` vim-modal bindings remain the primary keyboard path. The earlier `:` command-bar system was fully retired 2026-09-01. Spec: `docs/archive/global-search-spec.md`.
 - **Two-server deployment** — `FREEBOOKS_BIND` selects the listen interface (default `127.0.0.1` loopback-only); set to a LAN/Tailscale IP, always paired with `FREEBOOKS_AUTH_MODE=token-remote`.
 
 ---
@@ -177,7 +177,7 @@ freebooks/
 │   │   ├── fb-core.js          # FB.keys core: scope stack, teardown, resetPage
 │   │   ├── fb-list.js          # FB.list shared list/table framework (vim-modal)
 │   │   ├── fb-form.js          # FB.form shared form framework (zones, cursor)
-│   │   ├── fb-command.js       # `/` search-scope parsing; survives as a smaller utility after the `:` command-bar retirement (docs/global-search-spec.md)
+│   │   ├── fb-command.js       # `/` search-scope parsing; survives as a smaller utility after the `:` command-bar retirement (docs/archive/global-search-spec.md)
 │   │   └── fb-attachments.js    # shared attachment helper module
 │   └── src/
 │       ├── index.js            # Express entry point, action routing, auth gate, action catalog
@@ -238,34 +238,17 @@ freebooks/
 │   ├── render.js               # shared report HTML rendering (P&L, BS, CF, SCE, TB, GL, …)
 │   ├── generate.js             # CLI report generator
 │   └── sources/                # report source data
-├── docs/                       # specs + guides — 50+ files; a representative subset:
-│   ├── agent-readiness-spec.md
-│   ├── agent-setup-guide.md
-│   ├── agent-data-feeding-guide.md
-│   ├── bank-matching-spec.md
-│   ├── bank-mapping-suggestions-spec.md
-│   ├── bank-match-bill-settlement-spec.md
-│   ├── bill-extraction-spec.md
-│   ├── bill-withholding-tax-spec.md
-│   ├── b9-self-contained-agent-spec.md
-│   ├── calendar-reminders-documents-spec.md
-│   ├── global-search-spec.md    # current `/` navigation model (supersedes the retired `:` command bar)
-│   ├── keyboard-ux-spec.md
-│   ├── fb-list-ux-spec.md
-│   ├── reports-dashboard-spec.md
-│   ├── jurisdiction-pack.md
-│   ├── fx-automation-spec.md
-│   ├── ia-spec.md               # + ia-restructure-spec.md / -2 / -3 (incremental amendments)
-│   ├── topbar-chrome-spec.md
-│   ├── access-tab-spec.md
-│   ├── cost-profit-center-spec.md
-│   ├── settings-ux-spec.md
+├── docs/                       # living references; implemented specs live in docs/archive/
+│   ├── UI.md                    # visual design system
+│   ├── ia-spec.md               # IA + interaction doctrine (§0)
+│   ├── keyboard-ux-spec.md      # keyboard model; keyboard-shortcuts-followups.md
+│   ├── fb-list-ux-spec.md       # FB.list framework contract
 │   ├── payables-ux-spec.md
-│   ├── p2-1-year-end-close-spec.md
-│   ├── p2-3-bill-lines-subledger-spec.md
-│   ├── p2-4a-vat-unify-spec.md
-│   ├── partner-proposal-spec.md
-│   └── UI.md
+│   ├── jurisdiction-pack.md
+│   ├── agent-readiness-spec.md  # agent contract (propose/approve, events, MCP surface)
+│   ├── agent-setup-guide.md / agent-data-feeding-guide.md
+│   ├── bank-match-bill-settlement-spec.md / fb-list-bills-return-context-spec.md  # partly built
+│   └── archive/                 # implemented or superseded specs (history; still cited by name in code comments)
 ├── .github/workflows/build.yml # CI
 ├── Dockerfile                  # production image (ghcr.io/lars010101/freebooks)
 └── Dockerfile.dev              # distrobox dev container (ghcr.io/lars010101/freebooks-dev)
@@ -425,6 +408,9 @@ Each jurisdiction directory contains:
 ---
 
 ## Engineering Rules
+
+**Specs (#314, 2026-11-22):** write a spec only for accounting logic (VAT, settlement, period close, filings). UI and keyboard changes are described in the GitHub issue itself. When a spec is fully implemented, move it to `docs/archive/`.
+
 
 Standing rules carried over from the retired architecture review (`docs/review-roadmap.md`, deleted 2026-10-03; recoverable from git history):
 

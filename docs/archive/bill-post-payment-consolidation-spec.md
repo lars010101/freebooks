@@ -82,7 +82,7 @@ So "Draft OFF" on the two surfaces would currently enforce different bars for wh
 
 - `docs/keyboard-ux-spec.md` — add a Bills/Payables per-page binding entry (§8 pattern) documenting `w`/`~`/`y` per §1–§2.
 - `docs/payables-ux-spec.md` — mark the P1-9 inline pay-row section superseded by §3 (already flagged as containing other stale sections per `keyboard-shortcuts-followups.md` #5 — good moment to clean up together).
-- `docs/p131-multi-bill-settlement-spec.md` — mark superseded by §3.
+- `docs/archive/p131-multi-bill-settlement-spec.md` — mark superseded by §3.
 - `docs/bank-match-bill-settlement-spec.md` — its line *"`bill.payment.record` (the `p`/`P` keys, `payables-bills.js`) is the only path today that actually settles a bill"* needs the `p`/`P` reference swapped to "New Payment" once this ships.
-- `docs/topbar-chrome-spec.md` §5 — add the New Payment `+`-menu entry once built (it already documents the mechanism generically, §5's "raised in conversation as a possible `p`-key or similar addition" note can be resolved by pointing at `y` instead).
+- `docs/archive/topbar-chrome-spec.md` §5 — add the New Payment `+`-menu entry once built (it already documents the mechanism generically, §5's "raised in conversation as a possible `p`-key or similar addition" note can be resolved by pointing at `y` instead).
 - `docs/keyboard-shortcuts-followups.md` — close #2 as moot (§6); leave #1/#6 open.

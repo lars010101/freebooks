@@ -69,4 +69,35 @@ async function isDerivationEnabled(companyId) {
   return row?.value === 'true';
 }
 
-module.exports = { deriveProfitCenter, isDerivationEnabled };
+/**
+ * Basic reference validation, independent of the derivation flag (issue
+ * #304): a cost/profit center typed on a posting must resolve to a real,
+ * correctly-typed, active center. Derivation strictness (auto-derive the
+ * profit center, require full cost→profit linkage) stays behind
+ * isDerivationEnabled — this only rejects references that point nowhere or
+ * at the wrong kind of center, which is wrong in every rollout state.
+ *
+ * @param {string} companyId
+ * @param {string|null} centerId - empty/null is a no-op
+ * @param {'Cost'|'Profit'} expectedType
+ * @param {{allowInactive?: boolean}} [opts] - correction/reversal paths only
+ */
+async function validateCenterRef(companyId, centerId, expectedType, { allowInactive = false } = {}) {
+  if (!centerId) return;
+  const label = expectedType === 'Cost' ? 'cost center' : 'profit center';
+  const [center] = await query(
+    `SELECT center_type, is_active FROM centers WHERE company_id = @companyId AND center_id = @centerId`,
+    { companyId, centerId }
+  );
+  if (!center) {
+    throw Object.assign(new Error(`Unknown ${label}: ${centerId}`), { code: 'INVALID_INPUT' });
+  }
+  if (center.center_type !== expectedType) {
+    throw Object.assign(new Error(`${centerId} is not a ${expectedType} center`), { code: 'INVALID_INPUT' });
+  }
+  if (!center.is_active && !allowInactive) {
+    throw Object.assign(new Error(`${expectedType} center ${centerId} is inactive`), { code: 'INVALID_INPUT' });
+  }
+}
+
+module.exports = { deriveProfitCenter, isDerivationEnabled, validateCenterRef };

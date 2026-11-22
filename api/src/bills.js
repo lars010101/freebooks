@@ -15,7 +15,7 @@ const { validateBill } = require('./validation');
 const { settleBillPayment, settleMultiBillPayment, applyBillSettlement } = require('./settlement');
 const { getRate } = require('./fx');
 const { emitEvent } = require('./events');
-const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
+const { deriveProfitCenter, isDerivationEnabled, validateCenterRef } = require('./centers');
 // computeVatSplit removed — bills now use tax-exclusive direct VAT lookup
 
 // Read company-level default AP and expense account codes from the accounts
@@ -308,8 +308,20 @@ async function createBill(ctx) {
   const firstVatCode = expenseLines[0].vat_code;
 
   // Spec §4b: derive profit_center from cost_center when derivation is enabled.
-  if (bill.cost_center && await isDerivationEnabled(companyId)) {
+  // Issue #304: otherwise still reject references that don't resolve to a
+  // real, correctly-typed, active center (header and every line).
+  const derivationOn = await isDerivationEnabled(companyId);
+  if (bill.cost_center && derivationOn) {
     bill.profit_center = await deriveProfitCenter(companyId, bill.cost_center);
+  } else {
+    await validateCenterRef(companyId, bill.cost_center, 'Cost');
+    await validateCenterRef(companyId, bill.profit_center, 'Profit');
+  }
+  // Line-level centers are posted as typed (no per-line derivation), so
+  // both references are always checked.
+  for (const l of expenseLines) {
+    await validateCenterRef(companyId, l.cost_center, 'Cost');
+    await validateCenterRef(companyId, l.profit_center, 'Profit');
   }
 
   // When posting a draft, reuse the draft's bill_id (preserves attachments +

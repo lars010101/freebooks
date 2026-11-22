@@ -19,7 +19,7 @@ const { validateJournalBatch } = require('./validation');
 const { auditLog } = require('./audit');
 const { emitEvent } = require('./events');
 const { normalizeDescription } = require('./mapping-utils');
-const { deriveProfitCenter, isDerivationEnabled } = require('./centers');
+const { deriveProfitCenter, isDerivationEnabled, validateCenterRef } = require('./centers');
 const { getRate } = require('./fx');
 
 async function handleJournal(ctx, action) {
@@ -187,22 +187,19 @@ async function enrichAndValidate(companyId, lines) {
   // postJournalBatch's row builder), so isReversal is always false here.
   // Reversals go through reverseEntry which copies cost_center/profit_center
   // directly and doesn't call enrichAndValidate.
+  //
+  // Issue #304: basic reference validation (real, correctly-typed, active
+  // center) runs whether or not derivation is on; only the auto-derive +
+  // full-linkage requirement is gated by the flag.
   const derivationEnabled = await isDerivationEnabled(companyId);
-  if (derivationEnabled) {
-    for (const line of expandedLines) {
-      if (line.cost_center) {
-        line.profit_center = await deriveProfitCenter(companyId, line.cost_center);
-      } else if (line.profit_center) {
-        // Direct profit-center-only posting (no cost driver) — validate it
-        // resolves to an actual Profit-type center.
-        const [pc] = await query(
-          `SELECT center_type FROM centers WHERE company_id = @companyId AND center_id = @profitCenterId`,
-          { companyId, profitCenterId: line.profit_center }
-        );
-        if (!pc || pc.center_type !== 'Profit') {
-          throw new Error(`${line.profit_center} is not a valid profit center`);
-        }
-      }
+  for (const line of expandedLines) {
+    if (derivationEnabled && line.cost_center) {
+      // deriveProfitCenter validates the cost center itself and overrides
+      // any typed profit center with the derived one.
+      line.profit_center = await deriveProfitCenter(companyId, line.cost_center);
+    } else {
+      await validateCenterRef(companyId, line.cost_center, 'Cost');
+      await validateCenterRef(companyId, line.profit_center, 'Profit');
     }
   }
 

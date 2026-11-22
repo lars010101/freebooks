@@ -77,19 +77,5 @@ async function scanCompany(companyId) {
   return notified;
 }
 
-/**
- * Start the scanner: run once at boot, then on interval.
- * Timer is unref'd so it never keeps the event loop alive on its own.
- */
-function startReconciliationScanner() {
-  runReconciliationScan().catch((e) => console.error('Boot reconciliation scan failed:', e.message));
 
-  const timer = setInterval(() => {
-    runReconciliationScan().catch((e) => console.error('Scheduled reconciliation scan failed:', e.message));
-  }, SCAN_MS);
-  timer.unref();
-
-  return { scanIntervalMs: SCAN_MS };
-}
-
-module.exports = { runReconciliationScan, scanCompany, startReconciliationScanner };
+module.exports = { runReconciliationScan, scanCompany, SCAN_MS };

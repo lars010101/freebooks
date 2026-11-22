@@ -408,7 +408,7 @@ app.get('/api/attachments/:attachmentId', serveAttachment);
 const { serveOrphanFile } = require('./orphaned-files');
 app.get('/api/orphaned-file/:orphanId', serveOrphanFile);
 // A4 (§4.7): token-gated admin trigger for the attachment GC (mirrors
-// /api/admin/query). GC also runs at boot + on a 24h setInterval below.
+// /api/admin/query). GC also runs at boot + every 24h (scheduler, below).
 app.post('/api/admin/gc-attachments', handleAdminGC);
 
 // --- COA ---
@@ -1923,51 +1923,28 @@ async function handleDiag(ctx, action) {
 
 // Ensure DB is open (with WAL recovery) before accepting requests
 ensureDb().then(async () => {
-  // A4 (§4.7): run attachment GC at boot, then every 24h (unref'd so the timer
-  // never keeps the event loop alive on its own). GC purges expired
-  // journal_proposal-bound attachments past the 30-day grace; it never touches
-  // entity_type='journal' rows (BFL 7 kap retention). Failures are logged, not
-  // fatal — a GC miss just defers cleanup to the next tick.
-  try { await runAttachmentGC(); } catch (e) { console.error('Boot attachment GC failed:', e.message); }
-  const gcTimer = setInterval(() => {
-    runAttachmentGC().catch((e) => console.error('Scheduled attachment GC failed:', e.message));
-  }, 24 * 60 * 60 * 1000);
-  gcTimer.unref();
-
-  // chat-with-ai-spec.md §2b/§7.4: sweep abandoned chat_pending_turns rows
-  // (a turn parked on an unresolved permission decision that the user never
-  // came back to). Metadata-only rows, short 2h TTL — same boot+interval
-  // shape as the attachment GC above, just a much shorter clock since
-  // nothing ledger-relevant is at stake.
-  const { gcPendingTurns } = require('./chat');
-  try { await gcPendingTurns(); } catch (e) { console.error('Boot chat-turn GC failed:', e.message); }
-  const chatGcTimer = setInterval(() => {
-    gcPendingTurns().catch((e) => console.error('Scheduled chat-turn GC failed:', e.message));
-  }, 60 * 60 * 1000);
-  chatGcTimer.unref();
-
-  // ── fx-automation-spec §6: FX gap scanner ──────────────────────────────
-  // On startup + every 6h (FREEBOOKS_FX_SCAN_MS). Short-circuits if no company
-  // has fx_tracking='true' with a real provider. Timer is unref'd.
-  const { startFxScanner } = require('./fx-scanner');
-  startFxScanner();
-
-  // ── calendar-reminders-documents-spec.md §4.4/§5.5: second and third
-  // notification producers into the same table/bell the FX scanner already
-  // feeds — no consumer-side changes needed. Both timers are unref'd.
-  const { startReminderScanner } = require('./reminder-scanner');
-  startReminderScanner();
-  const { startAttachmentIntegrityScanner } = require('./attachment-integrity-scanner');
-  startAttachmentIntegrityScanner();
-
-  // ── Inbox Class B reframe: bills-due and reconciliation alerts move from
-  // the Inbox's filter cycle into the notifications bell — neither carries
-  // an in-place decision, only a "go look" verb, which is what the bell is
-  // for. Fourth and fifth producers into the same table. Timers unref'd.
-  const { startBillsDueScanner } = require('./bills-due-scanner');
-  startBillsDueScanner();
-  const { startReconciliationScanner } = require('./reconciliation-scanner');
-  startReconciliationScanner();
+  // ── Background jobs (scheduler.js, #311): each runs at start, then on its
+  // interval; errors are logged per job; FREEBOOKS_SCHEDULER=off disables all.
+  const scheduler = require('./scheduler');
+  const HOUR = 60 * 60 * 1000;
+  // A4 (§4.7): purge expired journal_proposal-bound attachments past the
+  // 30-day grace; never touches entity_type='journal' rows (BFL 7 kap).
+  scheduler.register({ name: 'attachment-gc', intervalMs: 24 * HOUR, run: runAttachmentGC, awaitStart: true });
+  // chat-with-ai-spec.md §2b/§7.4: sweep abandoned chat_pending_turns (2h TTL).
+  scheduler.register({ name: 'chat-turn-gc', intervalMs: HOUR, run: require('./chat').gcPendingTurns, awaitStart: true });
+  // Notification producers feeding the bell (notifications table). Each
+  // interval is env-tunable in its module (FREEBOOKS_*_SCAN_MS).
+  for (const [name, mod, run] of [
+    ['fx-scan', './fx-scanner', 'runFxScan'],                                  // fx-automation-spec §6
+    ['reminder-scan', './reminder-scanner', 'runReminderScan'],                // calendar-reminders-documents-spec §4.4
+    ['attachment-integrity-scan', './attachment-integrity-scanner', 'runAttachmentIntegrityScan'], // same spec §5.5
+    ['bills-due-scan', './bills-due-scanner', 'runBillsDueScan'],              // Inbox Class B reframe
+    ['reconciliation-scan', './reconciliation-scanner', 'runReconciliationScan'],
+  ]) {
+    const m = require(mod);
+    scheduler.register({ name, intervalMs: m.SCAN_MS, run: m[run] });
+  }
+  await scheduler.start();
 
   // ── B9: in-process agent pipeline boot ─────────────────────────────────
   // Build a dispatchAction function that replicates the HTTP dispatch logic
@@ -2127,6 +2104,7 @@ async function shutdown(signal) {
     const bootState = require('./boot-state');
     if (bootState.agentLoop) bootState.agentLoop.stopAgentLoop();
     if (bootState.feedWatcher) bootState.feedWatcher.stopFeedWatcher();
+    require('./scheduler').stop();
     await exec('CHECKPOINT;');
     console.log('Database checkpointed.');
   } catch (err) {

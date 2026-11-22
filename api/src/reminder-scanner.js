@@ -68,19 +68,5 @@ async function scanCompany(companyId) {
   return notified;
 }
 
-/**
- * Start the scanner: run once at boot, then on interval.
- * Timer is unref'd so it never keeps the event loop alive on its own.
- */
-function startReminderScanner() {
-  runReminderScan().catch((e) => console.error('Boot reminder scan failed:', e.message));
 
-  const timer = setInterval(() => {
-    runReminderScan().catch((e) => console.error('Scheduled reminder scan failed:', e.message));
-  }, SCAN_MS);
-  timer.unref();
-
-  return { scanIntervalMs: SCAN_MS };
-}
-
-module.exports = { runReminderScan, scanCompany, startReminderScanner };
+module.exports = { runReminderScan, scanCompany, SCAN_MS };

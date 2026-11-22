@@ -78,19 +78,5 @@ async function scanCompany(companyId) {
   return notified;
 }
 
-/**
- * Start the scanner: run once at boot, then on interval.
- * Timer is unref'd so it never keeps the event loop alive on its own.
- */
-function startBillsDueScanner() {
-  runBillsDueScan().catch((e) => console.error('Boot bills-due scan failed:', e.message));
 
-  const timer = setInterval(() => {
-    runBillsDueScan().catch((e) => console.error('Scheduled bills-due scan failed:', e.message));
-  }, SCAN_MS);
-  timer.unref();
-
-  return { scanIntervalMs: SCAN_MS };
-}
-
-module.exports = { runBillsDueScan, scanCompany, startBillsDueScanner };
+module.exports = { runBillsDueScan, scanCompany, SCAN_MS };

@@ -177,21 +177,5 @@ async function scanCompany(companyId, baseCurrency) {
   return { fetched, notified };
 }
 
-/**
- * Start the scanner: run once at boot, then on interval.
- * Timer is unref'd so it never keeps the event loop alive on its own.
- */
-function startFxScanner() {
-  // Run once at boot (fire-and-forget)
-  runFxScan().catch((e) => console.error('Boot FX scan failed:', e.message));
 
-  // Schedule recurring scan
-  const timer = setInterval(() => {
-    runFxScan().catch((e) => console.error('Scheduled FX scan failed:', e.message));
-  }, SCAN_MS);
-  timer.unref();
-
-  return { scanIntervalMs: SCAN_MS };
-}
-
-module.exports = { runFxScan, scanCompany, startFxScanner };
+module.exports = { runFxScan, scanCompany, SCAN_MS };

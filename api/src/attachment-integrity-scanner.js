@@ -146,15 +146,4 @@ function walkFiles(dir, base) {
   return out;
 }
 
-function startAttachmentIntegrityScanner() {
-  runAttachmentIntegrityScan().catch((e) => console.error('Boot attachment integrity scan failed:', e.message));
-
-  const timer = setInterval(() => {
-    runAttachmentIntegrityScan().catch((e) => console.error('Scheduled attachment integrity scan failed:', e.message));
-  }, SCAN_MS);
-  timer.unref();
-
-  return { scanIntervalMs: SCAN_MS };
-}
-
-module.exports = { runAttachmentIntegrityScan, startAttachmentIntegrityScanner };
+module.exports = { runAttachmentIntegrityScan, SCAN_MS };

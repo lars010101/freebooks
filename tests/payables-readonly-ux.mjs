@@ -7,7 +7,8 @@
 //   - i on the draft opens no inline editor (no inputs appear in the table);
 //   - Space unfolds the draft's lines (read-only);
 //   - Enter opens /bill/<id>;
-//   - the "+ Add bill" row opens /bill/new.
+//   - the "+ Add bill" row opens /bill/new;
+//   - x on the draft deletes it after confirmation.
 //
 // Run: node tests/payables-readonly-ux.mjs   (skips without Chromium)
 
@@ -80,6 +81,17 @@ try {
   await page.click('#bills-tbody tr.fb-add-row');
   await page.waitForURL(u => u.pathname.endsWith('/bill/new'), { timeout: 5000 }).catch(() => {});
   ok('+ Add bill opens /bill/new', new URL(page.url()).pathname === `/${CO}/bill/new`, page.url());
+
+  // x on a draft still deletes it (the tree delete path, cfg.del).
+  await page.goto(listUrl, { waitUntil: 'networkidle' });
+  await page.waitForSelector('#bills-tbody tr[data-key]', { timeout: 10000 });
+  await page.click('#bills-tbody tr[data-key] td[data-field="date"]');
+  await page.keyboard.press('x');
+  const del = page.getByRole('button', { name: 'Delete' });
+  await del.waitFor({ timeout: 5000 }).catch(() => {});
+  if (await del.count()) await del.click();
+  await page.waitForFunction(() => !document.querySelector('#bills-tbody tr[data-key]'), null, { timeout: 5000 }).catch(() => {});
+  ok('x deletes the draft (confirm → Delete)', await page.locator('#bills-tbody tr[data-key]').count() === 0);
 
   ok('no uncaught JS errors', errors.length === 0, errors.join('; '));
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);

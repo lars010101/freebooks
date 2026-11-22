@@ -643,7 +643,7 @@ var billsList = FB.list.create({
         outstanding: (Number(b.amount) || 0) - (Number(b.amount_paid) || 0),
         currency: b.currency || BASE_CURRENCY, status: b.status || '',
         ap_account: b.ap_account || '', expense_account: b.expense_account || '',
-        partner_id: b.partner_id || '', _isBill: true
+        partner_id: b.partner_id || ''
       };
     } },
   // Pre-resolved lazy children: the framework calls children(row)

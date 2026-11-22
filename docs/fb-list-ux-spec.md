@@ -2,6 +2,8 @@
 
 Status: **RATIFIED 2026-07-23** (magnus, Slack design thread). Supersedes the ghost-row create slot (rejected same date). Companions: `settings-ux-spec.md` (Esc doctrine origin — §3 restates, does not revise it), `payables-ux-spec.md` (Bills tree-table). Bills `tree: true` ratified 2026-07-24.
 
+> **2026-11-22 (#312, #315) — tree mode is read-only.** Tree lists (Bills, Inbox) never enter edit: Enter opens the row (`openRow`) or folds it, Space folds, `x` deletes the parent through `del` (Bills drafts). The whole-parent edit unit, the child-line edit hooks (`editChildRowHtml`, `attachChild`, `harvestChild`, `harvestExtra`, `addChild`, edit footer), `extraInsertBindings` and the `a` verb were removed. The add row can hand off creation with `onNew()` (Bills → `/bill/new`). Rows in this spec that describe tree editing are historical.
+
 ---
 
 ## 1. Purpose
@@ -46,7 +48,7 @@ clean ──i/Enter/click──▶ editing ──Esc──▶ dirty ──w─�
 | read | `gg` / `G` | first row / bottom (= add row) — framework-level since 2026-07-23 |
 | read | `i` / Enter / click cell | edit focused row; on the add row = create. Tree mode: on a child = edit the parent bill (whole-bill unit); on a posted bill = no-op (`editable` false) |
 | read, tree | `Space` / click ▸ | fold — toggle the parent under the cursor (children lazy-fetch on first open); inert on the add row |
-| read, tree | `a` | add child to the focused draft bill (§5's `a` = add child) |
+| read, tree | ~~`a`~~ | ~~add child to the focused draft bill~~ — removed 2026-11-22 (#315) |
 | read | `x` | delete — confirm for saved rows; no-op on `deletable:false` rows (e.g. ECB rates); discards dirty-new rows |
 | read, dirty | `w` / `✓` chip | **write — the only save** |
 | read, dirty | `u` / `✕` chip | undo to saved values |
@@ -96,7 +98,7 @@ Screen-specific verbs live in `extraBindings(api)` (e.g. Vendors `~` toggle acti
 | `harvestExtra(tr, row, buf)` | merge non-column payload fields into the edit buffer (Bills: `vendor_id`/`ap_account`/`expense_account` travel on the vendor input's dataset) (optional) |
 | `hint` | register note rendered in the sidebar under the tab's keyboard help — the only sanctioned note location |
 
-In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on parent or child opens the parent with all children; `save.body(d)` carries header + lines in ONE write; `u` undoes all.
+*(Historical — tree mode is read-only since #315.)* In tree mode `editable`/`deletable` gate the **whole-parent edit unit**: `i` on parent or child opens the parent with all children; `save.body(d)` carries header + lines in ONE write; `u` undoes all.
 **Status messages (retired 2026-07-23):** the per-screen `msg` span config is gone. All transient feedback ("Saved", validation errors) routes through **`FB.status.show(text, sev)`** (fb-core) into the single topbar slot `#tb-status-msg`. Severity: `true`/`'err'` red, `'warn'` amber, falsy green/neutral. **Never auto-dismisses** — a message stays until the next one replaces it (vim cmdline semantics). Distinct channel from the 🔔 (persistent alerts, fx-automation-spec §7).
 
 ### 6.1 Tree mode — fold / filter / edit-unit semantics

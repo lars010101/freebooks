@@ -17,12 +17,11 @@
  * The returned object is a template-literal client script fragment: pages
  * interpolate it into their <script> block and call initPeriodsGrid(opts).
  *
- * opts: { keysId, activeExpr, onChromeBody, tree } — page-specific chrome hooks.
+ * opts: { keysId, activeExpr, onChromeBody } — page-specific chrome hooks.
  *   activeExpr:   JS expression string evaluated client-side for FB.list `active`
  *   onChromeBody: JS function body called with (dirty) for page chrome (tab dots)
- *   tree:         true on the Periods section page (row expansion → filings +
- *                 checklist child rows; the page defines periodsChildren +
- *                 periodsChildRowHtml). Omitted/false → plain flat grid.
+ * (The tree option — filings/checklist child rows — had no caller and was
+ * removed with FB.list's tree editing, #315.)
  */
 
 function periodsGridClientJS(opts) {
@@ -36,7 +35,7 @@ var periodsList = FB.list.create({
   keysId: '${opts.keysId || 'periods'}',
   active: function() { return ${activeExpr}; },
   tbody: 'periods-body',
-  companyId: function() { return COMPANY; },${opts.tree ? '\n  tree: true,' : ''}
+  companyId: function() { return COMPANY; },
   columns: [
     { field: 'period_name', type: 'text', width: 110, ro: 'saved' },
     { field: 'start_date', type: 'date', width: null, filterType: 'date',
@@ -65,9 +64,7 @@ var periodsList = FB.list.create({
     focusKey: function(d) { return d._isNew ? d.period_name : d._key; } },
   del: { action: 'period.delete',
     body: function(d) { return { periodId: d._key }; },
-    confirm: function(d) { return 'Delete period "' + d.period_name + '"?'; } },${opts.tree ? `
-  children: periodsChildren,
-  childRowHtml: periodsChildRowHtml,` : ''}
+    confirm: function(d) { return 'Delete period "' + d.period_name + '"?'; } },
   onChrome: function(dirty) { ${opts.onChromeBody || ''} }
 });
 

@@ -1,5 +1,6 @@
 {
   "name": "freebooks",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "test": "npm test --prefix api && node tests/reversal.mjs && node tests/correct-resubmit-ux.mjs && node tests/documents-orphans-ux.mjs && node tests/inbox-transactions-ux.mjs && node tests/inbox-partners-ux.mjs && node tests/jurisdiction-packs.mjs && node tests/fx-reval.mjs && node tests/fx-exposed-currencies.mjs && node tests/mcp-smoke.mjs && node --test tests/bill-extraction.test.mjs && node --test tests/fuzzy-duplicate-detection.test.mjs && node tests/sru-golden-2024.mjs",

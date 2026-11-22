@@ -176,7 +176,8 @@ app.use('/public', express.static(path.join(__dirname, '../public'), {
   etag: true,
 }));
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api' }));
+const APP_VERSION = require('../../package.json').version;
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api', version: APP_VERSION }));
 
 // P1-1: machine-readable action catalog — agent self-discovery.
 app.get('/api/actions', (_req, res) => res.json({ ok: true, actions: ACTIONS }));
@@ -2105,7 +2106,7 @@ ensureDb().then(async () => {
   }
 
   app.listen(PORT, HOST, () => {
-    console.log(`freeBooks API listening on ${HOST}:${PORT}`);
+    console.log(`freeBooks ${APP_VERSION} listening on ${HOST}:${PORT}`);
   });
 }).catch(err => {
   console.error('Fatal: could not open database:', err.message);

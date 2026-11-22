@@ -1,14 +1,22 @@
-name: Build and Push Docker image
+name: Test, build and publish images
+
+# main      → ghcr.io/lars010101/freebooks:edge (+ sha-<commit>),
+#             ghcr.io/lars010101/freebooks-dev:latest (distrobox container)
+# tag vX.Y.Z → ghcr.io/lars010101/freebooks:X.Y.Z, :X.Y, :latest
+# PR        → test + build + smoke test, nothing published
 
 on:
   push:
     branches:
       - main
+    tags:
+      - 'v*.*.*'
   pull_request:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: lars010101/freebooks
+  DEV_IMAGE_NAME: lars010101/freebooks-dev
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -21,7 +29,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
+
+      - name: Tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          [ "$want" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} does not match package.json version ($want)"; exit 1; }
 
       - name: Install dependencies
         run: |
@@ -32,8 +46,71 @@ jobs:
       - name: Run full test suite (API contract + integration scripts)
         run: npm test
 
-  build-and-push:
+  image:
     needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Docker Buildx with cache
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v6.16.0
+        with:
+          context: .
+          load: true
+          tags: freebooks:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (fresh volume boots, migrates, serves /health)
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:3000:3000 -v smoke-data:/data freebooks:smoke
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3000/health && break; sleep 1; done
+          curl -sf http://127.0.0.1:3000/health | grep -q '"ok":true'
+          docker logs smoke 2>&1 | grep -q 'Database schema at version'
+          docker exec smoke test -f /data/freebooks.duckdb
+          docker logs smoke
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3.3.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5.6.1
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha,prefix=sha-,enable=${{ github.ref_type == 'branch' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Publish image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6.16.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+
+  dev-image:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -53,22 +130,12 @@ jobs:
       - name: Set up Docker Buildx with cache
         uses: docker/setup-buildx-action@v3.10.0
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5.6.1
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
+      - name: Publish distrobox dev image
         uses: docker/build-push-action@v6.16.0
         with:
           context: .
+          file: Dockerfile.dev
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ env.REGISTRY }}/${{ env.DEV_IMAGE_NAME }}:latest
+          cache-from: type=gha,scope=dev
+          cache-to: type=gha,scope=dev,mode=max

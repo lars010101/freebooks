@@ -78,8 +78,8 @@ async function getCompanyInboxPath(companyId) {
     { cid: companyId }
   );
   if (rows.length > 0 && rows[0].value) return rows[0].value;
-  // Default: ~/freebooks-inbox
-  return path.join(require('os').homedir(), 'freebooks-inbox');
+  // Default: FREEBOOKS_INBOX_ROOT (set by the container image), else ~/freebooks-inbox
+  return process.env.FREEBOOKS_INBOX_ROOT || path.join(require('os').homedir(), 'freebooks-inbox');
 }
 
 /**

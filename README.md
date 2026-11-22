@@ -60,7 +60,7 @@ Open-source, self-hosted double-entry accounting for small companies. Your data 
 | Report queries | DuckDB SQL macros (`db/macros.sql`) |
 | File uploads | Multer |
 | Auth | Email + role-based permissions (`user_permissions` table); per-actor Bearer tokens (`api_tokens`, `FREEBOOKS_AUTH_MODE=token-remote`, `auth.token.create`/`revoke`); `agent` role at level 1.5 with a default-deny whitelist |
-| Container | Dockerfile (Wolfi/distrobox base) |
+| Container | `Dockerfile` (production image, Debian slim + Node 24) · `Dockerfile.dev` (Wolfi distrobox dev container) |
 
 Server dependencies live in [`api/package.json`](api/package.json): `express`, `@duckdb/node-api`, `cors`, `dotenv`, `multer`, `uuid`. The root [`package.json`](package.json) additionally carries `pdf-parse` (scanned-PDF rasterization for bill/journal document extraction, used by `api/src/agent-loop.js`) and `playwright-core` (dev-only, UI regression tests).
 
@@ -68,7 +68,24 @@ Server dependencies live in [`api/package.json`](api/package.json): `express`, `
 
 ## Getting Started
 
-### From scratch
+### Running with Docker
+
+```bash
+docker run -d --name freebooks --restart unless-stopped \
+  -p 127.0.0.1:3000:3000 \
+  -v freebooks-data:/data \
+  ghcr.io/lars010101/freebooks:latest
+```
+
+Open <http://localhost:3000>. The first run redirects to the new-company wizard.
+
+- **All state is in the `/data` volume:** the database (`freebooks.duckdb`), the backups taken before each schema upgrade (`freebooks.duckdb.bak-*`), attachments (`attachments/`) and the agent inbox folder (`inbox/`). Back up the volume, or bind-mount a host folder instead (`-v ~/freebooks-data:/data`; the container runs as uid 1000).
+- **Publish the port on `127.0.0.1` only**, as above. The server trusts every client that can reach it (`trust` auth mode, single-user install). For access from other machines, see `FREEBOOKS_AUTH_MODE=token-remote` below.
+- **Upgrading:** `docker pull ghcr.io/lars010101/freebooks:latest`, then remove and re-run the container with the same volume. Pending migrations run on start, after a backup.
+- **Pinning a version:** use a tag such as `:0.1` or `:0.1.0` instead of `:latest`. `:edge` follows `main` and is not a release.
+- **Configuration:** pass the environment variables below with `-e`, or an `.env` file with `--env-file`.
+
+### From source
 
 ```bash
 git clone https://github.com/lars010101/freebooks ~/freebooks
@@ -92,6 +109,14 @@ The server applies pending database migrations on boot (see [Database migrations
 
 The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before exit to prevent stale WAL files.
 
+### Releasing
+
+1. Bump `version` in the root `package.json` (semver) and commit.
+2. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`.
+3. CI checks that the tag matches `package.json`, runs the tests, smoke-tests the image and publishes `ghcr.io/lars010101/freebooks:0.1.0`, `:0.1` and `:latest`.
+
+The running version is shown by `GET /health` and in the startup log.
+
 ### Environment variables
 
 | Variable | Purpose |
@@ -101,6 +126,8 @@ The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before e
 | `FREEBOOKS_BIND` | Bind address (default `127.0.0.1` — loopback only). Set to a LAN/Tailscale interface IP for the two-server deployment, always paired with `FREEBOOKS_AUTH_MODE=token-remote`. Never bind a public interface in `trust` mode. |
 | `FREEBOOKS_AUTH_MODE` | `trust` (default) keeps install-level self-asserted identity. `token-remote` requires a valid `Authorization: *** API token from every **non-loopback** client — set this when the API is reachable over a network (two-server deployment). Mint/revoke tokens via the `auth.token.create` / `auth.token.revoke` actions (owner role; spec `docs/agent-readiness-spec.md` §2.5). |
 | `PORT` | HTTP port (default 3000). |
+| `FREEBOOKS_ATTACHMENTS_ROOT` | Attachment storage folder (default `~/.freebooks/attachments`; `/data/attachments` in the image). |
+| `FREEBOOKS_INBOX_ROOT` | Default agent inbox folder for companies without an `agent_inbox_path` setting (default `~/freebooks-inbox`; `/data/inbox` in the image). |
 
 ### MCP server (agent access)
 
@@ -231,7 +258,8 @@ freebooks/
 │   ├── partner-proposal-spec.md
 │   └── UI.md
 ├── .github/workflows/build.yml # CI
-└── Dockerfile                  # container image (Wolfi/distrobox)
+├── Dockerfile                  # production image (ghcr.io/lars010101/freebooks)
+└── Dockerfile.dev              # distrobox dev container (ghcr.io/lars010101/freebooks-dev)
 ```
 
 ---

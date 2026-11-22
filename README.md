@@ -16,7 +16,7 @@ Open-source, self-hosted double-entry accounting for small Swedish companies (VA
 - **Multi-period comparative reports** — month-over-month and year-over-year for P&L, BS, and CF, driven by company-defined fiscal periods
 - **Multi-currency (IAS 21)** — transaction-currency and home-currency columns on every journal line; FX gain/loss on settlement computed via the booking-rate method; period-end FX revaluation (preview + post) with jurisdiction-pack-driven monetary account types and gain/loss account (P2-2)
 - **VAT / GST engine** — tax-exclusive entry across bills and journal entries (entered amount IS the net; VAT computed on top and posted as separate per-code GL lines), reverse-charge support, supplier-stated VAT override with configurable tolerance (bills only), and VAT return generation grouped by report box. Bank import remains tax-inclusive (settled cash = gross)
-- **Accounts Payable** — partner master with defaults, multi-line bill entry (auto-generates DR Expense / CR AP journal), draft bills, void with auto-reversal, payment matching, multi-bill settlement (one payment allocated across several open bills from the same vendor/currency, atomic, whole-batch void — issue #131), and AP Aging report
+- **Accounts Payable** — partner master with defaults, multi-line bill entry on the full bill page (`/bill/new`, `/bill/:id`; auto-generates DR Expense / CR AP journal), draft bills, a read-only Payables bills list (Enter opens a bill, `y` posts a draft or opens New Payment), void with auto-reversal, payment matching, multi-bill settlement (one payment allocated across several open bills from the same vendor/currency, atomic, whole-batch void — issue #131), and AP Aging report
 - **Withholding tax (WHT)** — a plain company setting (`wht_tracking`, not jurisdiction-gated, mirroring `fx_tracking`), not a Singapore-only feature though motivated by IRAS S45. Booked at posting: the withheld amount reduces the AP credit and books to a WHT payable GL account instead; `bills.amount`/`amount_paid` become net-of-WHT so payment matching reconciles against what actually reaches the vendor. Remittance to the tax authority is a plain manual journal entry against that liability account — no dedicated subledger or filing tracker. Spec: `docs/archive/bill-withholding-tax-spec.md`.
 - **Partner proposal & unification** — partners unified into a `partners` table; agent can propose new vendor/partner entries via the same propose/approve pattern as journal entries (inbox Class A item, `y`/`x` review). Spec: `docs/archive/partner-proposal-spec.md`.
 - **Accounts Receivable** — invoicing and AR aging are **dropped/deferred** from the current cycle; nav and page scaffolding remain in place but inactive.
@@ -54,7 +54,7 @@ Open-source, self-hosted double-entry accounting for small Swedish companies (VA
 
 | Layer | Technology |
 |---|---|
-| Runtime | Node.js ≥ 20 |
+| Runtime | Node.js ≥ 20 (CI and the Docker image use Node 24) |
 | HTTP server | Express 4 |
 | Database | DuckDB (single embedded file via `@duckdb/node-api`) |
 | Report queries | DuckDB SQL macros (`db/macros.sql`) |
@@ -171,6 +171,8 @@ curl -X POST http://127.0.0.1:3000/api -H 'Content-Type: application/json' \
 freebooks/
 ├── api/
 │   ├── package.json            # dependencies + start/dev scripts
+│   ├── test/                   # API, contract, migration and scheduler tests (node --test)
+│   ├── test-utils/             # throwaway test server + seed helpers
 │   ├── public/                 # static assets served at /public
 │   │   ├── common.js           # shared page nav/helpers
 │   │   ├── common.css          # shared page styles
@@ -185,14 +187,14 @@ freebooks/
 │       ├── auth.js             # permission checking (user_permissions table)
 │       ├── tokens.js           # Bearer API token create/verify/revoke (api_tokens)
 │       ├── action-catalog.js   # action → module/role registry (GET /api/actions)
-│       ├── agent-loop.js       # B9 in-process agent loop: poll events, bank.match, journal.propose, retrospective sweep
+│       ├── agent-loop.js       # B9 in-process agent loop: poll events, bank.match, journal.propose, bill/journal document extraction (one shared pipeline), retrospective sweep
 │       ├── feed-watcher.js     # B9 in-process folder watcher (setInterval + readdir)
 │       ├── mapping-utils.js    # normalizeDescription, detectMappingConflicts (mapping-suggestions spec)
 │       ├── events.js           # append-only events table emission (valid-JSON truncation)
 │       ├── journal.js          # journal posting, reversal, search, reference sequencing, proposal approve/reject
 │       ├── bills.js            # Accounts Payable: create, void, list, match, drafts, aging
 │       ├── partners.js         # partner master CRUD
-│       ├── bank.js             # bank statement processing, approval, reconciliation, tier 1-3.5 matching
+│       ├── bank.js             # bank-line matching (tiers 1–3.5, incl. bill settlement), reconciliation
 │       ├── vat.js              # VAT/GST split, reverse charge, VAT return
 │       ├── fx.js               # FX rate lookup, manual entry, revaluation, provider config
 │       ├── fxProviders/        # pluggable rate providers (ecb.js, openexchangerates.js)
@@ -214,7 +216,13 @@ freebooks/
 │       ├── boot-state.js       # startup state / agent-loop boot check
 │       ├── settlement.js       # settlement helpers
 │       ├── periods-page-service.js  # periods grid page service
-│       └── pages/              # one module per UI page (bank, payables, bill-detail, bill-edit, settings, inbox, documents, calendar, chat, reports-hub, …)
+│       ├── scheduler.js        # background job scheduler (scanners + GCs; FREEBOOKS_SCHEDULER=off)
+│       ├── *-scanner.js        # notification scanners: fx, reminder, attachment-integrity, bills-due, reconciliation
+│       ├── notifications.js    # notifications bell (raise/dedupe by issue_key)
+│       ├── search.js           # global `/` search
+│       ├── chat.js             # Chat with AI
+│       ├── centers.js / wht.js / period-close.js  # cost/profit centers, withholding tax, year-end close
+│       └── pages/              # one module per UI page (bank, payables, bill-edit, settings, inbox, documents, calendar, chat, reports-hub, …)
 ├── mcp/
 │   ├── package.json
 │   └── server.js               # stdio MCP server over the action catalog
@@ -232,6 +240,7 @@ freebooks/
 │       ├── SE/                 # Sweden — K2/K3, BAS, SIE + SRU integrations, ink2/annual-report/vat-return filings
 │       ├── SG/                 # Singapore — SFRS, SFRS-SE
 │       └── _template/          # starting point for adding new jurisdictions
+├── tests/                      # integration + browser (Playwright) tests; lib/test-server.mjs
 ├── scripts/                    # fallback scripts (B9 in-process loop is primary)
 │   └── freebooks-feed-watch.sh # fallback folder watcher (inotifywait)
 ├── reports/
@@ -258,7 +267,7 @@ freebooks/
 
 ## Database Overview
 
-All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`). Tables are defined in [`db/schema.sql`](db/schema.sql); every table is partitioned by `company_id` for multi-company isolation.
+All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`; `/data/freebooks.duckdb` in the Docker image). Tables are created by the baseline [`db/schema.sql`](db/schema.sql) plus the numbered files in `db/migrations/` (see [Database migrations](#database-migrations)); every table is partitioned by `company_id` for multi-company isolation. The main tables:
 
 | Table | Purpose |
 |---|---|
@@ -270,7 +279,7 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `journal_proposals` | Agent-proposed journals awaiting human review (`proposed`/`approved`/`rejected`); carries `_match_meta` JSON |
 | `bills` | Accounts Payable bills (partner_name, amounts, currency, FX rate, status, `amount_paid`) |
 | `bill_lines` | Bill line subledger — expense line items for posted bills (written alongside journal entries; never mutated) |
-| `bill_payments` | Payment allocations linking bills to settlement journal batches |
+| `payments` | Bill payments and write-offs (amount, method, batch link to the settlement journal, void stamps) |
 | `partners` | Partner master with default currency, payment terms, and default expense/AP accounts |
 | `vat_codes` | VAT/GST codes: rate, input/output accounts, report box, reverse-charge flag |
 | `bank_mappings` | Rule-based bank import matching (pattern → offset account, VAT code), with `amount_sign` direction column |
@@ -288,6 +297,12 @@ All data lives in a single DuckDB file (default `~/.freebooks/freebooks.duckdb`)
 | `attachments` | File attachment metadata (entity type/id, filename, storage path, sha256) |
 | `events` | Append-only business-event stream (monotonic `event_seq`) — the agent input channel |
 | `audit_log` | Field-level change history (gains `actor_type` + `request_id`) |
+| `notifications` | Bell alerts raised by the scanners (dedupe by `issue_key`) |
+| `reminders` / `orphaned_files` | Calendar reminders; files in the attachments folder with no DB row |
+| `partner_proposals` | Agent-proposed partners awaiting review |
+| `wht_codes` / `bill_extraction_meta` | Withholding-tax codes; LLM extraction metadata per bill |
+| `chat_*` | Chat with AI: messages, pending turns, data permissions, aliases |
+| `schema_migrations` | Applied schema versions |
 
 Reporting views (`v_companies_latest`, `v_trial_balance`, `v_pl`, `v_bs`, `v_gl`) live in `db/views.sql`.
 
@@ -411,15 +426,15 @@ Each jurisdiction directory contains:
 
 **Specs (#314, 2026-11-22):** write a spec only for accounting logic (VAT, settlement, period close, filings). UI and keyboard changes are described in the GitHub issue itself. When a spec is fully implemented, move it to `docs/archive/`.
 
-
 Standing rules carried over from the retired architecture review (`docs/review-roadmap.md`, deleted 2026-10-03; recoverable from git history):
 
-1. Every feature: API action + schema + contract test first, UI second.
+1. Every feature: API action + schema migration + contract test first, UI second.
 2. The posted ledger is append-only; corrections via reversing entries, never mutation.
 3. Every mutating action is idempotent (key accepted) and audited.
 4. Backend warnings must have a UI channel; warnings are never silently dropped.
-5. Spec docs are updated in the same commit as behavior changes.
+5. Living docs in `docs/` (and this README) are updated in the same commit as behavior changes.
 6. Dead code is deleted, not commented out — including endpoints, CSS and `.bak` files.
+7. Tests never touch the real database: test servers get throwaway files, and under `node --test` the server modules fall back to a temp database when `FREEBOOKS_DB_PATH` is unset.
 
 Open backlog lives in GitHub issues, not in docs.
 

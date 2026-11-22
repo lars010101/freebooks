@@ -5,7 +5,7 @@
  */
 
 const { query, exec } = require('./db');
-const { amountSignMatches, normalizeDescription } = require('./mapping-utils');
+const { amountSignMatches, normalizeDescription, partnerNameMatch } = require('./mapping-utils');
 const { buildAllocationLines } = require('./settlement');
 
 async function handleBank(ctx, action) {
@@ -77,18 +77,17 @@ function matchMapping(mappings, description, amount) {
  * Returns null if no open bill is a plausible amount match.
  */
 // bank-matching-spec.md §4.3: corroborate via vendor_ref (word-boundary
-// regex, strong signal) or vendor name (bidirectional substring). Real bank
-// descriptions are usually truncated/abbreviated versions of a vendor's
-// registered name ("NORTHSTAR" vs "NorthStar Pte Ltd") — checking only
-// "description contains vendor name" misses that common case, so both
-// directions are checked. Returns 'ref' | 'name' | null; ref is the
-// stronger of the two and is returned in preference to name when both hit.
+// regex, strong signal) or the partner's name. The name check is the shared
+// partnerNameMatch (mapping-utils.js, #305) — the same matcher tier 3 uses —
+// which handles truncation ("NORTHST") and abbreviation ("NSTAR") of a
+// registered name like "NorthStar Pte Ltd". Returns 'ref' | 'name' | null;
+// ref is the stronger of the two and is returned in preference to name.
 function corroborate(desc, partner, ref) {
   if (ref) {
     const token = new RegExp('(^|[^A-Z0-9])' + ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^A-Z0-9]|$)');
     if (token.test(desc)) return 'ref';
   }
-  if (partner && (desc.includes(partner) || partner.includes(desc))) return 'name';
+  if (partner && partnerNameMatch(desc, partner)) return 'name';
   if (ref && desc.includes(ref)) return 'ref';
   return null;
 }
@@ -816,23 +815,22 @@ async function matchLine(ctx) {
   }
 
   // ── Tier 3 — master data / partners (§1, source_type 'master_data') ────────
-  // v1: case-insensitive substring of partner name in the description. The spec
-  // mentions trigram similarity but says it's simplified for small companies.
+  // The shared partnerNameMatch (#305): whole-word name, truncation or
+  // abbreviation. A full-name hit beats a prefix beats an abbreviation; ties
+  // go to the longest partner name (most specific).
   const partners = await query(
     `SELECT partner_id, name, default_expense_account AS expense_account FROM partners WHERE company_id = @companyId AND is_vendor = TRUE`,
     { companyId }
   );
   if (partners.length > 0) {
-    const descLc = (line.description || '').toLowerCase();
-    let bestPartner = null;
+    const RANK = { name: 3, prefix: 2, abbrev: 1 };
+    let bestPartner = null, bestKind = null;
     for (const v of partners) {
-      const nameLc = (v.name || '').toLowerCase();
-      if (nameLc && descLc.includes(nameLc)) {
-        // Prefer the longest matching name (most specific).
-        if (!bestPartner || (v.name || '').length > (bestPartner.name || '').length) {
-          bestPartner = v;
-        }
-      }
+      const kind = partnerNameMatch(line.description || '', v.name || '');
+      if (!kind) continue;
+      const better = !bestPartner || RANK[kind] > RANK[bestKind]
+        || (RANK[kind] === RANK[bestKind] && (v.name || '').length > (bestPartner.name || '').length);
+      if (better) { bestPartner = v; bestKind = kind; }
     }
     if (bestPartner) {
       const isInflow = Number(line.amount) > 0;
@@ -855,17 +853,17 @@ async function matchLine(ctx) {
         confidence: {
           account:      { value: expenseAccount,           confidence: 0.50, derived_from: [] },
           vat_code:      { value: null,                    confidence: 0,    derived_from: [] },
-          counterparty:  { value: bestVendor.partner_id,    confidence: 0.70, derived_from: [] },
+          counterparty:  { value: bestPartner.partner_id,    confidence: 0.70, derived_from: [] },
         },
         evidence: [{
           type: 'counterparty_name_fuzzy',
-          description: `Description '${line.description}' matches partner '${bestPartner.name}'`,
+          description: `Description '${line.description}' matches partner '${bestPartner.name}' (${bestKind})`,
           partner_id: bestPartner.partner_id,
         }],
         suggested_dimensions: {
           account: expenseAccount,
           vat_code: null,
-          counterparty: bestVendor.partner_id,
+          counterparty: bestPartner.partner_id,
           cost_center: null,
           profit_center: null,
         },

@@ -359,6 +359,76 @@ function findFuzzyMatch(name, candidates, threshold = 0.5) {
   return best;
 }
 
+// ── Partner-name matching against bank descriptions (#305) ───────────────────
+
+// Legal-form words dropped from partner names before matching: a bank
+// description rarely carries them ("NORTHSTAR" for "NorthStar Pte Ltd").
+const LEGAL_FORMS = new Set(['AB', 'PUBL', 'HB', 'KB', 'PTE', 'LTD', 'LIMITED', 'INC',
+  'LLC', 'CORP', 'CO', 'BV', 'NV', 'GMBH', 'AG', 'AS', 'ASA', 'APS', 'OY', 'OYJ', 'SA',
+  'SAS', 'SARL', 'SRL', 'SPA', 'PLC', 'LLP', 'KFT', 'SP', 'ZOO']);
+
+function _nameTokens(s) {
+  return normalizeDescription(s).replace(/[^A-Z0-9ÅÄÖÆØÜ]+/g, ' ').trim().split(' ').filter(Boolean);
+}
+
+// True when every char of `short` appears in `long` in order.
+function _isSubsequence(short, long) {
+  let i = 0;
+  for (let j = 0; j < long.length && i < short.length; j++) if (long[j] === short[i]) i++;
+  return i === short.length;
+}
+
+/**
+ * Does a bank description refer to this partner? The one name matcher for
+ * bank matching: tier-2 corroboration (bank.js corroborate) and tier 3
+ * (master-data match) both use it, so they cannot drift apart (#305).
+ *
+ * Both sides go through normalizeDescription (dates, long reference numbers
+ * and amounts stripped), punctuation is dropped and the partner's legal-form
+ * words (AB, Pte, Ltd, …) are removed. Then, with spaces ignored:
+ *   'name'   — whole consecutive description words spell the name, e.g.
+ *              "KORTKÖP NORTH STAR 0412" for "NorthStar Pte Ltd" (never
+ *              inside a word: "ICA" does not match "MUSICAL");
+ *   'prefix' — a description word of 4+ chars is the start of the name
+ *              (bank truncation: "NORTHST" for "NorthStar"), or a word starts
+ *              with a name of 5+ chars ("NORTHSTARPTE");
+ *   'abbrev' — a description word of 4+ chars is an abbreviation of the
+ *              name: same first and last letter, its letters appear in order
+ *              in the name, and it is at least half the name's length
+ *              ("NSTAR" for "NorthStar"; not "NETS" for "Netflix Services").
+ * Returns 'name' | 'prefix' | 'abbrev' | null. Names shorter than 3 chars
+ * after cleanup never match.
+ */
+function partnerNameMatch(description, partnerName) {
+  const nameTokens = _nameTokens(partnerName);
+  const core = nameTokens.filter((t) => !LEGAL_FORMS.has(t));
+  const name = (core.length ? core : nameTokens).join('');
+  if (name.length < 3) return null;
+  const descTokens = _nameTokens(description);
+  // 'name': one or more WHOLE consecutive description words spell the name
+  // (word boundaries respected, so "ICA" never matches inside "MUSICAL").
+  for (let i = 0; i < descTokens.length; i++) {
+    let run = '';
+    for (let j = i; j < descTokens.length && run.length < name.length; j++) {
+      run += descTokens[j];
+      if (run === name) return 'name';
+    }
+  }
+  for (const t of descTokens) {
+    if (t.length < 4 || /^\d+$/.test(t)) continue;
+    if (name.startsWith(t)) return 'prefix';
+    // ...or the word runs on past the name ("NORTHSTARPTE"); only for names of
+    // 5+ chars, so a short name like "ICA" doesn't match "ICAROS".
+    if (name.length >= 5 && t.startsWith(name)) return 'prefix';
+  }
+  for (const t of descTokens) {
+    if (t.length < 4 || /^\d+$/.test(t)) continue;
+    if (t[0] === name[0] && t[t.length - 1] === name[name.length - 1]
+        && t.length * 2 >= name.length && _isSubsequence(t, name)) return 'abbrev';
+  }
+  return null;
+}
+
 module.exports = {
   normalizeDescription,
   amountSignMatches,
@@ -367,4 +437,5 @@ module.exports = {
   patternMatchesDescription,
   trigramSimilarity,
   findFuzzyMatch,
+  partnerNameMatch,
 };

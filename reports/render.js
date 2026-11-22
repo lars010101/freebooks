@@ -673,7 +673,7 @@ async function buildGL(query, company, start, end, account) {
 // first line (by account_code) is the parent and carries Doc No; the rest are
 // children with Doc No blank, so a batch reads as one atomic unit no matter
 // how the list is filtered or sorted, and Doc No never repeats within it.
-// Rewritten 2026-08-30 (docs/ia-restructure-3-spec.md follow-up) — was a
+// Rewritten 2026-08-30 (docs/archive/ia-restructure-3-spec.md follow-up) — was a
 // bespoke fetch/sort/filter implementation with an explicit Search/Clear bar;
 // now server-renders every line once (like buildVoucherRegister) and lets
 // FB.list's native column-header filter/sort replace that bar entirely.

@@ -49,7 +49,9 @@ jobs:
         run: npx playwright-core install --with-deps chromium
 
       - name: Run full test suite (API contract + integration scripts)
+        shell: bash
         run: |
+          set -o pipefail  # without it tee's exit status hides test failures
           npm test 2>&1 | tee test.log
           if grep -q 'UX regression — SKIP' test.log; then echo 'A browser test skipped in CI'; exit 1; fi
 

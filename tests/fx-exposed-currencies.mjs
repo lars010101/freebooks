@@ -188,7 +188,7 @@ if (!schemaSource.includes('idx_journal_entries_company_currency_date')) {
 
 // ── 10. Netting test case documented in spec ───────────────────────────────
 
-const specSource = readSrc('docs/fx-tracked-currency-scoping-spec.md');
+const specSource = readSrc('docs/archive/fx-tracked-currency-scoping-spec.md');
 if (!specSource.includes('EUR receivable at +1,000 and a EUR payable')) {
   fail('Spec does not document the netting test case (§8.2)');
 }

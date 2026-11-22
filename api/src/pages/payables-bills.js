@@ -1277,10 +1277,12 @@ var billsList = FB.list.create({
   // Task 6f — drafts are the only editable/deletable bills; everything else
   // is a verb (post / pay / void), never an edit.
   editable: function (d) { return d.status === 'draft'; },
-  // Enter on a posted/paid/void bill (read-only) opens its full page —
-  // journal trail, attachments, void (#299, 2026-11-22: replaces the
-  // retired I key; /bill/:id serves any status). Space still folds.
-  openReadOnly: function (p) { fbNavigate('/' + COMPANY + '/bill/' + encodeURIComponent(p.bill_id)); },
+  // Enter opens the bill's full page — the full editor for a draft, the
+  // locked page (journal trail, attachments, void) otherwise; /bill/:id
+  // serves any status. i still edits a draft inline, Space folds.
+  // (#299, 2026-11-22: replaces the retired I key.) A new or dirty row
+  // keeps Enter = edit (FB.list openRow contract).
+  openRow: function (p) { fbNavigate('/' + COMPANY + '/bill/' + encodeURIComponent(p.bill_id)); },
   deletable: function (d) { return d.status === 'draft'; },
   // Screen verbs (framework PREPENDS these; guards keep built-ins as fallback).
   extraBindings: function (api) {

@@ -16,10 +16,13 @@ a viewer plus a small human correction surface. Consequences for this spec:
   shipped behavior, not obligations for future work.
 - **The verb surface is frozen.** No new keyboard verbs without explicit
   magnus ratification (P2-6 rebinding is dropped). *Ratified change
-  2026-11-22 (#299): Payables' `I` (open in full editor) is retired; on a
-  read-only Bills row (posted/paid/void) Enter opens the bill's full page
-  instead of folding (FB.list `openReadOnly` hook, opt-in per list — other
-  read-only tree lists keep Enter = unfold; Space still folds everywhere).*
+  2026-11-22 (#299): Payables' `I` (open in full editor) is retired. On the
+  Bills list, Enter opens the bill's full page for every saved bill — the
+  full editor for a draft, the locked page otherwise — and `i` stays inline
+  edit (Enter = open, i = edit). A new or dirty row keeps Enter = edit, so
+  Enter never navigates away from unsaved work. FB.list `openRow` hook,
+  opt-in per list — other lists keep their Enter behaviour; Space still
+  folds everywhere.*
 - **The coverage gate is single-screen.** `test:keys` runs the full
   key-coverage assertions on journal-voucher only; every other route is
   smoke-checked (loads, zero uncaught JS errors). Per-screen exemption

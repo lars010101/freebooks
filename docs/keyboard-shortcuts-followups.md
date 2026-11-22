@@ -11,10 +11,10 @@ No open items remain (2026-11-22).
 
 ## Resolved since the original notes (kept for the record)
 
-- **Payables `I` key (#299)** — retired 2026-11-22 (magnus). Drafts edit
-  inline with `i`/Enter; on a posted/paid/void bill Enter now opens the full
-  page (`openReadOnly`, `payables-bills.js`), which `I` had been the only
-  keyboard route to. See `keyboard-ux-spec.md` §0.
+- **Payables `I` key (#299)** — retired 2026-11-22 (magnus). Enter now
+  opens any saved bill's full page (draft → full editor, otherwise the
+  locked page) and `i` edits a draft inline (`openRow`, `payables-bills.js`).
+  See `keyboard-ux-spec.md` §0.
 
 - **Mouse "write" chip bypassing the draft-save kill** — moot: the Draft
   toggle (`~`, default off) made draft-vs-post an explicit choice

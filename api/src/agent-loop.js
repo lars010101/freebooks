@@ -813,6 +813,17 @@ VAT codes (code rate):
 ${vatLines || '(none)'}`;
 }
 
+// Shared by both extraction validators (#310). Confidence is derived from the
+// number of validation flags, never self-reported by the model (§3.3); the
+// money tolerance is the company's bill_extraction_tolerance setting, which
+// journal document extraction reuses.
+function _confidenceFromFlags(flags) {
+  return flags.length === 0 ? 'high' : flags.length === 1 ? 'medium' : 'low';
+}
+function _extractionTolerance(companySettings) {
+  return parseFloat((companySettings || {}).bill_extraction_tolerance || '0.50');
+}
+
 /**
  * Deterministic validation of the LLM-parsed output (spec §3.3).
  * Returns an ExtractionResult object. The model's own confidence self-report
@@ -937,7 +948,7 @@ function _validateExtraction(parsed, context, companySettings) {
 
   // ── Totals: sum(lines) vs total_stated (§3.3) ──
   const totalComputed = validLines.reduce((s, l) => s + l.amount, 0);
-  const tolerance = parseFloat(companySettings.bill_extraction_tolerance || '0.50');
+  const tolerance = _extractionTolerance(companySettings);
   if (Math.abs(totalComputed - totalStated) > tolerance) {
     flags.push('total_mismatch');
     validLines.forEach((l) => { l.needs_review = true; });
@@ -996,7 +1007,7 @@ function _validateExtraction(parsed, context, companySettings) {
   }
 
   // ── Confidence derivation (§3.3): flag count, not self-reported ──
-  const confidence = flags.length === 0 ? 'high' : flags.length === 1 ? 'medium' : 'low';
+  const confidence = _confidenceFromFlags(flags);
 
   return {
     ok: true,
@@ -1074,7 +1085,21 @@ async function _checkDuplicate(companyId, result) {
  * Returns an ExtractionResult (§4.1). Hard failures return ok:false with a
  * reason for input_rejections. Never throws to processBill.
  */
-async function extractBillData(att, payload, companySettings, companyId, agentEmail) {
+/**
+ * Shared document-extraction pipeline (#310) for bill extraction
+ * (bill-extraction-spec) and journal document extraction
+ * (journal-document-extraction-spec), which used to be two copies of the
+ * same steps: no-LLM hard failure (§5.1), context + prompt build (§2.2),
+ * text-vs-image document read with scanned-PDF rasterization (§2.1), the
+ * OpenAI-compatible LLM call (§3.2), response parsing, then the
+ * document-specific deterministic validation (§3.3).
+ *
+ * spec: { label, buildContext(companyId, agentEmail), buildPrompt(context),
+ *         summarizeContext(context) → prompt_snapshot.context,
+ *         imageInstruction, validate(parsed, context, companySettings) }
+ */
+async function _extractDocument(spec, att, payload, companySettings, companyId, agentEmail) {
+  const kind = spec.label;
   const filename = payload.filename || att.filename || '(unknown)';
   const ct = (att.contentType || '').toLowerCase();
   const isPdf = ct === 'application/pdf' || /\.pdf$/i.test(filename);
@@ -1084,14 +1109,14 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
 
   // ── Hard failure: no LLM configured (§5.1) ──
   if (!companySettings.llm_endpoint_url) {
-    warn(`bill ${filename}: no llm_endpoint_url configured`);
+    warn(`${kind} ${filename}: no llm_endpoint_url configured`);
     return { ok: false, reason: 'no_llm_configured', detail: 'No LLM endpoint configured',
              raw_model_output: null };
   }
 
   // ── Build context (§2.2) ──
-  const context = await buildBillExtractionContext(companyId, agentEmail);
-  const systemPrompt = buildBillExtractionPrompt(context);
+  const context = await spec.buildContext(companyId, agentEmail);
+  const systemPrompt = spec.buildPrompt(context);
   const temperature = parseFloat(companySettings.llm_temperature || '0.1');
   const url = companySettings.llm_endpoint_url;
   const apiKey = companySettings.llm_api_key || '';
@@ -1114,10 +1139,10 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
         useImage = false;
       } else {
         useImage = true;
-        warn(`bill ${filename}: PDF has a page below ${PDF_TEXT_PAGE_THRESHOLD} chars — treating as scanned`);
+        warn(`${kind} ${filename}: PDF has a page below ${PDF_TEXT_PAGE_THRESHOLD} chars — treating as scanned`);
       }
     } catch (e) {
-      warn(`bill ${filename}: pdf-parse failed: ${e.message} — trying image path`);
+      warn(`${kind} ${filename}: pdf-parse failed: ${e.message} — trying image path`);
       useImage = true;
     }
   }
@@ -1125,13 +1150,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   // ── LLM call (§3.2): same endpoint for text and image ──
   const promptSnapshot = {
     system_prompt: systemPrompt,
-    context: {
-      partner_count: (context.vendors || []).length,
-      expense_account_count: (context.expenseAccounts || []).length,
-      vat_code_count: (context.vatCodes || []).length,
-      currency: context.currency,
-      jurisdiction: context.jurisdiction,
-    },
+    context: spec.summarizeContext(context),
     model,
     temperature,
     content_type: useImage ? 'image' : 'text',
@@ -1153,7 +1172,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
         imageBuffers = [att.buffer];
       }
       if (imageBuffers.length === 0) {
-        warn(`bill ${filename}: no extractable content (not text, not image with buffer)`);
+        warn(`${kind} ${filename}: no extractable content (not text, not image with buffer)`);
         return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
                  raw_model_output: null, prompt_snapshot: promptSnapshot };
       }
@@ -1172,7 +1191,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: [
-              { type: 'text', text: 'Extract the bill data from this document.' },
+              { type: 'text', text: spec.imageInstruction },
               ...imageBlocks,
             ] },
           ],
@@ -1200,13 +1219,13 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
       });
     } else {
       // No text extracted and not an image with buffer — can't proceed
-      warn(`bill ${filename}: no extractable content (not text, not image with buffer)`);
+      warn(`${kind} ${filename}: no extractable content (not text, not image with buffer)`);
       return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
                raw_model_output: null, prompt_snapshot: promptSnapshot };
     }
   } catch (e) {
     // LLM call error (§5.1): timeout, network, etc.
-    warn(`bill ${filename}: LLM call failed: ${e.message}`);
+    warn(`${kind} ${filename}: LLM call failed: ${e.message}`);
     return { ok: false, reason: 'extraction_failed', detail: e.message,
              raw_model_output: null, prompt_snapshot: promptSnapshot };
   } finally {
@@ -1218,7 +1237,7 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   // ── Parse LLM response ──
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    warn(`bill ${filename}: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
+    warn(`${kind} ${filename}: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
     return { ok: false, reason: 'extraction_failed', detail: `LLM HTTP ${response.status}`,
              raw_model_output: { http_status: response.status, body: body.slice(0, 500) },
              prompt_snapshot: promptSnapshot };
@@ -1228,14 +1247,14 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   try {
     llmData = await response.json();
   } catch (e) {
-    warn(`bill ${filename}: LLM returned non-JSON envelope: ${e.message}`);
+    warn(`${kind} ${filename}: LLM returned non-JSON envelope: ${e.message}`);
     return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON response envelope',
              raw_model_output: null, prompt_snapshot: promptSnapshot };
   }
 
   const content = llmData?.choices?.[0]?.message?.content;
   if (!content) {
-    warn(`bill ${filename}: empty LLM response`);
+    warn(`${kind} ${filename}: empty LLM response`);
     return { ok: false, reason: 'extraction_failed', detail: 'Empty LLM response',
              raw_model_output: llmData, prompt_snapshot: promptSnapshot };
   }
@@ -1244,16 +1263,35 @@ async function extractBillData(att, payload, companySettings, companyId, agentEm
   try {
     parsed = JSON.parse(content);
   } catch (e) {
-    warn(`bill ${filename}: non-JSON content: ${content.slice(0, 200)}`);
+    warn(`${kind} ${filename}: non-JSON content: ${content.slice(0, 200)}`);
     return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON content from LLM',
              raw_model_output: { raw_content: content.slice(0, 1000) },
              prompt_snapshot: promptSnapshot };
   }
 
   // ── Deterministic validation (§3.3) ──
-  const result = _validateExtraction(parsed, context, companySettings);
+  const result = spec.validate(parsed, context, companySettings);
   result.prompt_snapshot = promptSnapshot;
   return result;
+}
+
+const BILL_EXTRACTION = {
+  label: 'bill',
+  buildContext: (companyId, agentEmail) => buildBillExtractionContext(companyId, agentEmail),
+  buildPrompt: (context) => buildBillExtractionPrompt(context),
+  summarizeContext: (context) => ({
+    partner_count: (context.vendors || []).length,
+    expense_account_count: (context.expenseAccounts || []).length,
+    vat_code_count: (context.vatCodes || []).length,
+    currency: context.currency,
+    jurisdiction: context.jurisdiction,
+  }),
+  imageInstruction: 'Extract the bill data from this document.',
+  validate: (parsed, context, companySettings) => _validateExtraction(parsed, context, companySettings),
+};
+
+async function extractBillData(att, payload, companySettings, companyId, agentEmail) {
+  return _extractDocument(BILL_EXTRACTION, att, payload, companySettings, companyId, agentEmail);
 }
 
 /**
@@ -1653,7 +1691,7 @@ function _validateJournalExtraction(parsed, context, companySettings) {
   }
 
   // ── Tolerance (reuse bill extraction's setting) ──
-  const tolerance = parseFloat(companySettings.bill_extraction_tolerance || '0.50');
+  const tolerance = _extractionTolerance(companySettings);
 
   // ── Cross-check: Σ(g_i) vs printed grand total (§3.3 multi-line) ──
   const sumGross = lineItems.reduce((s, l) => s + l.gross_amount, 0);
@@ -1719,7 +1757,7 @@ function _validateJournalExtraction(parsed, context, companySettings) {
   });
 
   // ── Confidence derivation (§3.3): flag count, not self-reported ──
-  const confidence = flags.length === 0 ? 'high' : flags.length === 1 ? 'medium' : 'low';
+  const confidence = _confidenceFromFlags(flags);
 
   return {
     ok: true,
@@ -1745,181 +1783,23 @@ function _validateJournalExtraction(parsed, context, companySettings) {
  * Returns an ExtractionResult (§4). Hard failures return ok:false with a
  * reason for input_rejections. Never throws to processJournalDocument.
  */
+const JOURNAL_EXTRACTION = {
+  label: 'journal',
+  buildContext: (companyId, agentEmail) => buildJournalExtractionContext(companyId, agentEmail),
+  buildPrompt: (context) => buildJournalExtractionPrompt(context),
+  summarizeContext: (context) => ({
+    account_count: (context.accounts || []).length,
+    vat_code_count: (context.vatCodes || []).length,
+    currency: context.currency,
+    jurisdiction: context.jurisdiction,
+    default_cash_account: context.defaultCashAccount,
+  }),
+  imageInstruction: 'Extract the journal-entry data from this document.',
+  validate: (parsed, context, companySettings) => _validateJournalExtraction(parsed, context, companySettings),
+};
+
 async function extractJournalDocumentData(att, payload, companySettings, companyId, agentEmail) {
-  const filename = payload.filename || att.filename || '(unknown)';
-  const ct = (att.contentType || '').toLowerCase();
-  const isPdf = ct === 'application/pdf' || /\.pdf$/i.test(filename);
-  const isImage = ct === 'image/jpeg' || ct === 'image/png'
-    || /\.(jpe?g|png)$/i.test(filename);
-  companySettings = companySettings || {};
-
-  // ── Hard failure: no LLM configured (§5.1) ──
-  if (!companySettings.llm_endpoint_url) {
-    warn(`journal ${filename}: no llm_endpoint_url configured`);
-    return { ok: false, reason: 'no_llm_configured', detail: 'No LLM endpoint configured',
-             raw_model_output: null };
-  }
-
-  // ── Build context (§2.2) ──
-  const context = await buildJournalExtractionContext(companyId, agentEmail);
-  const systemPrompt = buildJournalExtractionPrompt(context);
-  const temperature = parseFloat(companySettings.llm_temperature || '0.1');
-  const url = companySettings.llm_endpoint_url;
-  const apiKey = companySettings.llm_api_key || '';
-  const model = companySettings.llm_model || 'default';
-
-  // ── Document read: determine text vs image path (§2.1) ──
-  let useImage = isImage;
-  let extractedText = '';
-  let pdfParser = null; // kept open across the text check so a scanned PDF can be rasterized below
-
-  if (isPdf) {
-    try {
-      const { pages, parser } = await _readPdfPages(att.buffer);
-      pdfParser = parser;
-      const allPagesTextNative = pages.length > 0 && pages.every((p) => p.text.length >= PDF_TEXT_PAGE_THRESHOLD);
-      if (allPagesTextNative) {
-        extractedText = pages.map((p) => p.text).join('\n\n');
-        useImage = false;
-      } else {
-        useImage = true;
-        warn(`journal ${filename}: PDF has a page below ${PDF_TEXT_PAGE_THRESHOLD} chars — treating as scanned`);
-      }
-    } catch (e) {
-      warn(`journal ${filename}: pdf-parse failed: ${e.message} — trying image path`);
-      useImage = true;
-    }
-  }
-
-  // ── LLM call (§3.2): same fetch pattern as bill extraction ──
-  const promptSnapshot = {
-    system_prompt: systemPrompt,
-    context: {
-      account_count: (context.accounts || []).length,
-      vat_code_count: (context.vatCodes || []).length,
-      currency: context.currency,
-      jurisdiction: context.jurisdiction,
-      default_cash_account: context.defaultCashAccount,
-    },
-    model,
-    temperature,
-    content_type: useImage ? 'image' : 'text',
-  };
-
-  let response;
-  try {
-    if (useImage) {
-      // Image path: a scanned PDF is rasterized to real PNG pages first (§2.1,
-      // issue #139) — vision endpoints that only accept JPEG/PNG reject a PDF
-      // relabeled with an image mime type. A genuine image attachment is sent
-      // as-is.
-      let imageBuffers = [];
-      let mimeType = att.contentType || 'application/octet-stream';
-      if (isPdf && pdfParser) {
-        imageBuffers = await _rasterizePdfPages(pdfParser);
-        mimeType = 'image/png';
-      } else if (att.buffer) {
-        imageBuffers = [att.buffer];
-      }
-      if (imageBuffers.length === 0) {
-        warn(`journal ${filename}: no extractable content (not text, not image with buffer)`);
-        return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
-                 raw_model_output: null, prompt_snapshot: promptSnapshot };
-      }
-      const imageBlocks = imageBuffers.map((buf) => ({
-        type: 'image_url',
-        image_url: { url: `data:${mimeType};base64,${buf.toString('base64')}` },
-      }));
-      response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: [
-              { type: 'text', text: 'Extract the journal-entry data from this document.' },
-              ...imageBlocks,
-            ] },
-          ],
-          temperature,
-          response_format: { type: 'json_object' },
-        }),
-      });
-    } else if (extractedText) {
-      response = await fetch(`${url.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: extractedText },
-          ],
-          temperature,
-          response_format: { type: 'json_object' },
-        }),
-      });
-    } else {
-      warn(`journal ${filename}: no extractable content (not text, not image with buffer)`);
-      return { ok: false, reason: 'extraction_failed', detail: 'No extractable content',
-               raw_model_output: null, prompt_snapshot: promptSnapshot };
-    }
-  } catch (e) {
-    warn(`journal ${filename}: LLM call failed: ${e.message}`);
-    return { ok: false, reason: 'extraction_failed', detail: e.message,
-             raw_model_output: null, prompt_snapshot: promptSnapshot };
-  } finally {
-    if (pdfParser) {
-      try { await pdfParser.destroy(); } catch (_) { /* best-effort cleanup */ }
-    }
-  }
-
-  // ── Parse LLM response ──
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    warn(`journal ${filename}: LLM HTTP ${response.status}: ${body.slice(0, 200)}`);
-    return { ok: false, reason: 'extraction_failed', detail: `LLM HTTP ${response.status}`,
-             raw_model_output: { http_status: response.status, body: body.slice(0, 500) },
-             prompt_snapshot: promptSnapshot };
-  }
-
-  let llmData;
-  try {
-    llmData = await response.json();
-  } catch (e) {
-    warn(`journal ${filename}: LLM returned non-JSON envelope: ${e.message}`);
-    return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON response envelope',
-             raw_model_output: null, prompt_snapshot: promptSnapshot };
-  }
-
-  const content = llmData?.choices?.[0]?.message?.content;
-  if (!content) {
-    warn(`journal ${filename}: empty LLM response`);
-    return { ok: false, reason: 'extraction_failed', detail: 'Empty LLM response',
-             raw_model_output: llmData, prompt_snapshot: promptSnapshot };
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch (e) {
-    warn(`journal ${filename}: non-JSON content: ${content.slice(0, 200)}`);
-    return { ok: false, reason: 'extraction_failed', detail: 'Non-JSON content from LLM',
-             raw_model_output: { raw_content: content.slice(0, 1000) },
-             prompt_snapshot: promptSnapshot };
-  }
-
-  // ── Deterministic validation (§3.3) ──
-  const result = _validateJournalExtraction(parsed, context, companySettings);
-  result.prompt_snapshot = promptSnapshot;
-  return result;
+  return _extractDocument(JOURNAL_EXTRACTION, att, payload, companySettings, companyId, agentEmail);
 }
 
 /**

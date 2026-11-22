@@ -34,17 +34,18 @@ ${commonStyle()}
   <div class="header"><h1>New Company</h1></div>
 
   <div class="section-title">Company Details</div>
-  <div class="field-row"><label>Company ID <small style="color:var(--text-muted)">(lowercase, underscores only)</small></label><input type="text" id="co-id" placeholder="myco_sg" pattern="[a-z0-9_]+"></div>
+  <div class="field-row"><label>Company ID <small style="color:var(--text-muted)">(lowercase, underscores only)</small></label><input type="text" id="co-id" placeholder="myco_se" pattern="[a-z0-9_]+"></div>
   <div class="field-row"><label>Company Name</label><input type="text" id="co-name"></div>
-  <div class="field-row"><label>Currency</label><input type="text" id="co-currency" value="SGD" maxlength="3" style="max-width:80px"></div>
+  <div class="field-row"><label>Currency</label><input type="text" id="co-currency" value="SEK" maxlength="3" style="max-width:80px"></div>
   <div class="field-row"><label>Jurisdiction</label>
-    <select id="co-jurisdiction" style="max-width:120px">
-      <option value="SG">SG — Singapore</option>
-      <option value="SE">SE — Sweden</option>
+    <!-- Launch scope is Sweden (#313); Singapore stays available as a preview. -->
+    <select id="co-jurisdiction" style="max-width:200px" onchange="onJurisdictionChange()">
+      <option value="SE" selected>SE — Sweden</option>
+      <option value="SG">SG — Singapore (preview)</option>
     </select>
   </div>
-  <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid" placeholder="e.g. 201703022E"></div>
-  <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard" value="SFRS"></div>
+  <div class="field-row"><label>Tax ID</label><input type="text" id="co-taxid" placeholder="e.g. 556677-8899"></div>
+  <div class="field-row"><label>Reporting Standard</label><input type="text" id="co-standard" value="K2"></div>
   <div class="field-row"><label><input type="checkbox" id="co-vat"> VAT / GST Registered</label></div>
 
   <div class="section-title">Fiscal Periods</div>
@@ -95,6 +96,19 @@ function getPeriods() {
     var ins = tr.querySelectorAll('input');
     return { name: ins[0].value.trim(), start: ins[1].value, end: ins[2].value };
   }).filter(p => p.name && p.start && p.end);
+}
+
+// Jurisdiction defaults for currency, reporting standard and tax-id hint.
+var JURISDICTION_DEFAULTS = {
+  SE: { currency: 'SEK', standard: 'K2', taxid: 'e.g. 556677-8899' },
+  SG: { currency: 'SGD', standard: 'SFRS', taxid: 'e.g. 201703022E' }
+};
+function onJurisdictionChange() {
+  var d = JURISDICTION_DEFAULTS[document.getElementById('co-jurisdiction').value];
+  if (!d) return;
+  document.getElementById('co-currency').value = d.currency;
+  document.getElementById('co-standard').value = d.standard;
+  document.getElementById('co-taxid').placeholder = d.taxid;
 }
 
 function createCompany() {

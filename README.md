@@ -1,6 +1,6 @@
 # freeBooks
 
-Open-source, self-hosted double-entry accounting for small companies. Your data stays on your machine in a single DuckDB file — no cloud dependency, no subscription.
+Open-source, self-hosted double-entry accounting for small Swedish companies (VAT return, SIE 4, SRU/INK2). Your data stays on your machine in a single DuckDB file — no cloud dependency, no subscription. Singapore is available as a preview; see [Supported Jurisdictions](#supported-jurisdictions).
 
 **Stack:** Node.js · Express · DuckDB (`@duckdb/node-api`)
 **License:** AGPL-3.0
@@ -406,10 +406,12 @@ Driven by `db/jurisdictions/<CC>/filings/ink2.json` descriptors + `api/src/emitt
 
 New companies load a jurisdiction pack from `db/jurisdictions/<code>/`. A `_template/` directory is provided as a starting point for adding new jurisdictions.
 
-| Code | Country | Currency | Reporting standards | VAT name | Tax authority | COA standard |
-|---|---|---|---|---|---|---|
-| `SG` | Singapore | SGD | SFRS, SFRS-SE | GST | IRAS | SFRS |
-| `SE` | Sweden | SEK | K2, K3 | Moms | Skatteverket | BAS |
+**The first release supports Sweden (#313).** It is the one jurisdiction with the full chain: VAT return, SIE 4 import/export and SRU/INK2. The Singapore pack stays in the repo as a **preview**: it loads, but gets no new work before launch, and its filings are not maintained.
+
+| Code | Country | Status | Currency | Reporting standards | VAT name | Tax authority | COA standard |
+|---|---|---|---|---|---|---|---|
+| `SE` | Sweden | Supported | SEK | K2, K3 | Moms | Skatteverket | BAS |
+| `SG` | Singapore | Preview | SGD | SFRS, SFRS-SE | GST | IRAS | SFRS |
 
 Each jurisdiction directory contains:
 

@@ -9,8 +9,4 @@ tests
 api/test
 api/test-utils
 scripts
-pw-*.mjs
-probe-db.js
-TEST_*.md
-*.csv
 Dockerfile*

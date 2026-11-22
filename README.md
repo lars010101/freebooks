@@ -109,6 +109,15 @@ The server applies pending database migrations on boot (see [Database migrations
 
 The server handles `SIGINT`/`SIGTERM` gracefully and checkpoints DuckDB before exit to prevent stale WAL files.
 
+### Tests
+
+`npm test` runs everything CI runs. Tests live in two places:
+
+- `api/test/*.test.js`: API, contract and migration tests (`node --test`, run with `npm run test:api`). Each file boots its own throwaway server through `api/test-utils/helpers.js` (own DuckDB file, attachments folder and OS-assigned port), so files run in parallel safely.
+- `tests/`: integration and browser (Playwright) scripts, booted through `tests/lib/test-server.mjs` the same way. Browser tests need Chromium (`npx playwright-core install chromium`).
+
+Never point a test at the default database (`~/.freebooks/freebooks.duckdb`).
+
 ### Releasing
 
 1. Bump `version` in the root `package.json` (semver) and commit.

@@ -10,10 +10,10 @@
 // (journal.js) which emits a self-balancing DR-input + CR-output VAT pair.
 // Finally the entry is posted and the success status asserted.
 //
-// Run: node pw-rc.mjs
+// Run: node tests/rc-balance-ux.mjs
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { startTestServer, api, seedCompany, testDates } = require('./api/test-utils/helpers');
+const { startTestServer, api, seedCompany, testDates } = require('../api/test-utils/helpers');
 const { chromium } = require('playwright-core');
 
 let pass = 0, fail = 0;
@@ -131,8 +131,10 @@ try {
   const diff = await page.textContent('#total-diff');
   const postDisabled = await page.evaluate(() => document.getElementById('btn-post').disabled);
   const lineVat = await page.textContent('#lines-body tr:nth-child(1) .vat-display');
-  ok('line VAT readout = 250.00 (1000 \u00d7 25%)', lineVat === '250.00', `got ${lineVat}`);
-  ok('diff = 0.00 (RC nets to zero)', diff === '0.00', `got ${diff}`);
+  // Amounts render in the company's locale (SE: "250,00"); compare the number.
+  const num = (s) => Number(String(s).replace(/\s/g, '').replace(',', '.'));
+  ok('line VAT readout = 250.00 (1000 \u00d7 25%)', num(lineVat) === 250, `got ${lineVat}`);
+  ok('diff = 0.00 (RC nets to zero)', num(diff) === 0, `got ${diff}`);
   ok('btn-post enabled (balanced)', postDisabled === false, `disabled=${postDisabled}`);
 
   // ── Post + verify success ──────────────────────────────────────────────────

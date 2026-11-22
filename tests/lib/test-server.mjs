@@ -20,13 +20,18 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
+
+// Free-port allocation and instance-checked health wait are shared with the
+// API test helpers (see the comment there on the old port-collision flake).
+const { getFreePort, waitForHealth } = createRequire(import.meta.url)('../../api/test-utils/helpers.js');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const API_INDEX = path.join(REPO_ROOT, 'api/src/index.js');
 const DB_INIT = path.join(REPO_ROOT, 'db/init.js');
 
-let _portCounter = 4700 + (process.pid % 50);
 
 function runInit(dbPath) {
   return new Promise((resolve, reject) => {
@@ -40,24 +45,13 @@ function runInit(dbPath) {
   });
 }
 
-async function waitForHealth(baseUrl, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${baseUrl}/health`);
-      if (r.ok) return;
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`server at ${baseUrl} did not become healthy within ${timeoutMs}ms`);
-}
-
 /**
  * Boot a throwaway server. Returns { baseUrl, port, dbPath, cleanup }.
  * @param {{adminToken?: boolean}} [opts]
  */
 export async function startServer({ adminToken = true } = {}) {
-  const port = _portCounter++;
+  const port = await getFreePort();
+  const instanceId = crypto.randomUUID();
   const dbPath = `/tmp/fb-script-${process.pid}-${port}.duckdb`;
   for (const suffix of ['', '.wal']) {
     try { fs.unlinkSync(dbPath + suffix); } catch { /* fresh */ }
@@ -71,7 +65,7 @@ export async function startServer({ adminToken = true } = {}) {
   const attachmentsRoot = `/tmp/fb-script-${process.pid}-${port}-attachments`;
   try { fs.rmSync(attachmentsRoot, { recursive: true, force: true }); } catch { /* fresh */ }
 
-  const env = { ...process.env, FREEBOOKS_DB_PATH: dbPath, FREEBOOKS_ATTACHMENTS_ROOT: attachmentsRoot, PORT: String(port) };
+  const env = { ...process.env, FREEBOOKS_DB_PATH: dbPath, FREEBOOKS_ATTACHMENTS_ROOT: attachmentsRoot, PORT: String(port), FREEBOOKS_INSTANCE_ID: instanceId };
   if (adminToken) env.FREEBOOKS_ADMIN_TOKEN = 'script-test-token';
   else delete env.FREEBOOKS_ADMIN_TOKEN;
 
@@ -81,7 +75,7 @@ export async function startServer({ adminToken = true } = {}) {
   });
   child.stderr.on('data', (d) => { process.stderr.write(`[server] ${d}`); });
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForHealth(baseUrl);
+  await waitForHealth(baseUrl, { child, instanceId });
 
   let cleaned = false;
   async function cleanup() {

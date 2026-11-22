@@ -177,7 +177,10 @@ app.use('/public', express.static(path.join(__dirname, '../public'), {
 }));
 
 const APP_VERSION = require('../../package.json').version;
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api', version: APP_VERSION }));
+// `instance` echoes FREEBOOKS_INSTANCE_ID when set, so test harnesses can
+// confirm they reached the server they started (not one on a reused port).
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'freebooks-api', version: APP_VERSION,
+  ...(process.env.FREEBOOKS_INSTANCE_ID ? { instance: process.env.FREEBOOKS_INSTANCE_ID } : {}) }));
 
 // P1-1: machine-readable action catalog — agent self-discovery.
 app.get('/api/actions', (_req, res) => res.json({ ok: true, actions: ACTIONS }));

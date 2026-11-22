@@ -125,8 +125,8 @@ async function main() {
       ok('partner scope finds Acme partner',
         r.results.some((x) => x.type === 'partner' && x.label === 'Acme Supplies AB'),
         JSON.stringify(r.results));
-      ok('partner result route is master-data partners',
-        r.results.some((x) => x.route === '/master-data?tab=partners'));
+      ok('partner result route is the Payables partners tab',
+        r.results.some((x) => x.type === 'partner' && x.route.startsWith('/payables?tab=vendors')));
       ok('partner scope excludes inactive partner',
         !r.results.some((x) => x.label === 'Ghost Partner Inc'));
       // Only partners should be returned under scope=partner.
@@ -142,8 +142,8 @@ async function main() {
         JSON.stringify(byName.results));
       ok('account label is code + name',
         byName.results.some((x) => x.label === '1999 Acme Cash Account'));
-      ok('account route is coa tab',
-        byName.results.some((x) => x.route === '/master-data?tab=coa'));
+      ok('account route is the Accounting COA tab',
+        byName.results.some((x) => x.route === '/accounting?tab=coa&filter=1999'));
 
       const byCode = await search('199', 'account');
       ok('account scope finds by account_code',
@@ -158,8 +158,8 @@ async function main() {
       ok('journal scope finds reference 00001',
         r.results.some((x) => x.type === 'journal' && x.id === 'batch-srch-1'),
         JSON.stringify(r.results));
-      ok('journal label is the reference',
-        r.results.some((x) => x.label === '00001'));
+      ok('journal label leads with the reference',
+        r.results.some((x) => x.type === 'journal' && x.label.split('  ')[0].endsWith('00001')));
       ok('journal route targets the batch',
         r.results.some((x) => x.route === '/journal/voucher?batch=batch-srch-1'));
       // Distinct on batch_id: two entries share batch-srch-1 → one row.

@@ -17,11 +17,12 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
+const crypto = require('crypto');
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const API_DIR = path.join(REPO_ROOT, 'api');
 
-let _portCounter = 3900 + (process.pid % 100);
 
 function runInit(dbPath) {
   return new Promise((resolve, reject) => {
@@ -35,20 +36,52 @@ function runInit(dbPath) {
   });
 }
 
-async function waitForHealth(baseUrl, timeoutMs = 20000) {
+// Ports come from the OS (listen on 0, read the port, close). The old
+// `3900 + pid % 100` counter let parallel test files (node --test runs each
+// file in its own process) pick overlapping ports: the second server failed
+// to bind, but its health check was answered by the OTHER file's server, so
+// the test ran against someone else's database (the intermittent failures in
+// #309).
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+// Waits until the server answers /health AND reports the instance id we
+// gave it, so a different server on the same port can never pass. Fails fast
+// if the child exits.
+async function waitForHealth(baseUrl, { child, instanceId, timeoutMs = 20000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (child && child.exitCode !== null) {
+      throw new Error(`server for ${baseUrl} exited with code ${child.exitCode} before becoming healthy`);
+    }
     try {
       const r = await fetch(`${baseUrl}/health`);
-      if (r.ok) return;
-    } catch { /* not up yet */ }
+      if (r.ok) {
+        const body = await r.json();
+        if (!instanceId || body.instance === instanceId) return;
+        throw new Error(`port collision: ${baseUrl} is served by another test server`);
+      }
+    } catch (e) {
+      if (/port collision/.test(e.message)) throw e;
+      /* not up yet */
+    }
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error(`server at ${baseUrl} did not become healthy within ${timeoutMs}ms`);
 }
 
 async function startTestServer({ withAdminToken = true } = {}) {
-  const port = _portCounter++;
+  const port = await getFreePort();
+  const instanceId = crypto.randomUUID();
   const dbPath = `/tmp/fb-contract-${process.pid}-${port}.duckdb`;
   for (const suffix of ['', '.wal']) {
     try { fs.unlinkSync(dbPath + suffix); } catch { /* fresh */ }
@@ -67,6 +100,7 @@ async function startTestServer({ withAdminToken = true } = {}) {
     FREEBOOKS_DB_PATH: dbPath,
     FREEBOOKS_ATTACHMENTS_ROOT: attachmentsRoot,
     PORT: String(port),
+    FREEBOOKS_INSTANCE_ID: instanceId,
   };
   if (withAdminToken) env.FREEBOOKS_ADMIN_TOKEN = 'contract-test-token';
   else delete env.FREEBOOKS_ADMIN_TOKEN;
@@ -76,7 +110,7 @@ async function startTestServer({ withAdminToken = true } = {}) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForHealth(baseUrl);
+  await waitForHealth(baseUrl, { child, instanceId });
 
   let cleaned = false;
   async function cleanup() {
@@ -228,4 +262,4 @@ async function seedCompany(baseUrl, companyId, { jurisdiction = 'SG', currency =
   return { AP: ap && ap.account_code, EXP: exp && exp.account_code, accounts };
 }
 
-module.exports = { startTestServer, api, sql, seedCompany, testDates, runInit };
+module.exports = { startTestServer, api, sql, seedCompany, testDates, runInit, getFreePort, waitForHealth };

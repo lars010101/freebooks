@@ -598,10 +598,12 @@ async function buildGL(query, company, start, end, account) {
     // for dispatch. Embedded in a host page's shared FB.keys, that would
     // make this list eligible for j/k even while a completely different
     // tab is showing. offsetParent is null exactly when an ancestor is
-    // display:none — true both for "my own tab isn't the active one" and,
-    // harmlessly, for the standalone-document case (never hidden, so
-    // always true there).
-    active: function () { var el = document.getElementById('gl-body'); return !el || el.offsetParent !== null; },
+    // display:none ("my own tab isn't the active one"). A MISSING tbody is
+    // inactive too: the reports hub swaps tab content out of the DOM, and a
+    // "!el ||" guard here kept every visited tab's list active, swallowing
+    // j/k on the current tab (keybinding audit, 2026-11-23). The standalone
+    // document always has its tbody, so it stays active there.
+    active: function () { var el = document.getElementById('gl-body'); return !!el && el.offsetParent !== null; },
     tbody: 'gl-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -884,7 +886,7 @@ async function buildJournal(query, company, start, end) {
   var jlList = FB.list.create({
     keysId: 'journal-lines',
     // De-iframe migration (2026-09-16) — see buildGL's identical comment.
-    active: function () { var el = document.getElementById('jl-body'); return !el || el.offsetParent !== null; },
+    active: function () { var el = document.getElementById('jl-body'); return !!el && el.offsetParent !== null; },
     tbody: 'jl-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -1213,7 +1215,7 @@ async function buildVoucherRegister(query, company, start, end) {
   var vrList = FB.list.create({
     keysId: 'voucher-register',
     // De-iframe migration (2026-09-16) — see buildGL's identical comment.
-    active: function () { var el = document.getElementById('vr-body'); return !el || el.offsetParent !== null; },
+    active: function () { var el = document.getElementById('vr-body'); return !!el && el.offsetParent !== null; },
     tbody: 'vr-body',
     companyId: function () { return COMPANY; },
     canAdd: false,
@@ -1639,7 +1641,7 @@ async function buildAPAging(query, company, _start, end) {
   var agingList = FB.list.create({
     keysId: 'ap-aging',
     // De-iframe migration (2026-09-16) — see buildGL's identical comment.
-    active: function () { var el = document.getElementById('ap-body'); return !el || el.offsetParent !== null; },
+    active: function () { var el = document.getElementById('ap-body'); return !!el && el.offsetParent !== null; },
     tbody: 'ap-body',
     companyId: function () { return COMPANY; },
     canAdd: false,

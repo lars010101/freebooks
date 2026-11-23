@@ -569,6 +569,25 @@ function doVoid() {
   });
 }
 
+// x on the header of a saved draft (2026-11-23): delete the draft. Only
+// saved drafts — a new bill has nothing stored, and posted bills are voided
+// (reversed), never deleted.
+function doDeleteDraft() {
+  FB.modal.open({
+    title: 'Delete this draft bill?',
+    body: 'The draft and its lines are removed. Nothing has been posted, so no journal entry is affected.',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Delete draft', danger: true, onClick: function (api) {
+          api.close();
+          apiAction('bill.draft.delete', { billId: S.billId })
+            .then(function () { window.location.href = '/' + COMPANY + '/payables'; })
+            .catch(function (e) { msg(e.message, 'err'); });
+        } }
+    ]
+  });
+}
+
 // JE ref link (2026-09-06, replaces the old full journal-trail table —
 // per magnus: the line items already show the same Account/Debit/Credit
 // info the trail table repeated; the doc-no link was the only thing it had
@@ -1254,13 +1273,20 @@ var beForm = FB.form.create({
   },
   extraBindings: function (api) {
     return [
-      // x on the header zone voids a posted bill (Stage 3, 2026-09-06) —
-      // same "x means something bigger on the header" pattern as
-      // journal-voucher's reversal entry. Never collides with the generic
-      // delete verb's x, which only ever matches z===2 (lines), never z===0
-      // (header) or z===1 (attachments — a single button cell, not deletable).
-      { key: 'x', mode: 'NORMAL', hint: 'void', hintBar: true,
-        when: function () { return S.status === 'posted' && api.cur().z === 0; },
+      // x on the header zone acts on the whole bill — same "x means
+      // something bigger on the header" pattern as journal-voucher's
+      // reversal entry (magnus, 2026-11-23):
+      //   saved draft            → delete it (bill.draft.delete, confirm);
+      //   posted, nothing paid   → void = auto-reversing journal entry;
+      //   new (/bill/new, not saved yet: S.billId null), paid, part-paid,
+      //   void                   → nothing.
+      // Never collides with the generic delete verb's x, which only matches
+      // z===2 (lines), never z===0 (header) or z===1 (attachments).
+      { key: 'x', mode: 'NORMAL', hint: 'delete draft', hintBar: true,
+        when: function () { return !!S.billId && S.status === 'draft' && api.cur().z === 0; },
+        run: doDeleteDraft },
+      { key: 'x', mode: 'NORMAL', hint: 'void (reverse)', hintBar: true,
+        when: function () { return S.status === 'posted' && S.amountPaid <= 0.005 && api.cur().z === 0; },
         run: doVoid },
     ];
   }

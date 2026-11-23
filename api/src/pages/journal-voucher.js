@@ -1136,13 +1136,15 @@ ${commonStyle()}
       { id: 'lines',    rows: function () { return Array.from(document.querySelectorAll('#lines-body tr:not(.jv-orig-line):not(.jv-orig-hdr)')); } }
     ],
     verbs: {
-      add: { key: 'a', hint: 'add line', run: function (api) {
+      // View mode (a posted entry, not reversing) is read-only: the guards are
+      // when-guards so the ? overlay hides these verbs there (2026-11-23).
+      add: { key: 'a', hint: 'add line', when: function () { return !(VIEW_BATCH && !reversalMode); }, run: function (api) {
         if (VIEW_BATCH && !reversalMode) return;   // read-only in view mode
         addLine(); updateTotals();
         api.moveTo(3, api.zoneRows(3).length - 1, 0, true);
       } },
       delete: { key: 'x', hint: 'delete',
-        when: function (api) { var z = api.cur().z; return z === 2 || z === 3; },
+        when: function (api) { var z = api.cur().z; return !(VIEW_BATCH && !reversalMode) && (z === 2 || z === 3); },
         run: function (api) {
           if (VIEW_BATCH && !reversalMode) return;
           if (api.cur().z === 2) {
@@ -1159,7 +1161,7 @@ ${commonStyle()}
           if (!tr) return;
           tr.remove(); updateTotals(); api.refresh();
         } },
-      write: { key: 'w', hint: 'post', run: function () {
+      write: { key: 'w', hint: 'post', when: function () { return !(VIEW_BATCH && !reversalMode); }, run: function () {
         if (VIEW_BATCH && !reversalMode) return;
         var btn = document.getElementById('btn-post');
         if (btn.disabled) { showStatus('Out of balance — see Diff', true); return; }

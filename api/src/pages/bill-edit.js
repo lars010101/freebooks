@@ -588,6 +588,26 @@ function doDeleteDraft() {
   });
 }
 
+// W on a posted, part-paid bill (2026-11-23): close the remainder with
+// bill.write_off (DR AP / CR the Write-off account). Mirrors writeOffBill()
+// in payables-bills.js; the materiality threshold is server-side.
+function doWriteOff() {
+  var outstanding = S.amount - S.amountPaid;
+  FB.modal.open({
+    title: 'Write off the remaining balance?',
+    body: 'Close the remaining ' + FB.util.fmtAmt(outstanding) + ' on this bill with no payment. A journal entry is posted to the Write-off account. Amounts above the write-off threshold (Settings → Company) are refused.',
+    buttons: [
+      { label: 'Cancel', onClick: function (api) { api.close(); } },
+      { label: 'Write off', danger: true, onClick: function (api) {
+          api.close();
+          apiAction('bill.write_off', { billId: S.billId })
+            .then(function () { window.location.reload(); })
+            .catch(function (e) { msg('Write-off failed: ' + e.message, 'err'); });
+        } }
+    ]
+  });
+}
+
 // JE ref link (2026-09-06, replaces the old full journal-trail table —
 // per magnus: the line items already show the same Account/Debit/Credit
 // info the trail table repeated; the doc-no link was the only thing it had
@@ -1236,8 +1256,9 @@ var beForm = FB.form.create({
       } },
   ],
   verbs: {
-    add: { key: 'a', hint: 'add line', run: function (api) {
-      if (S.locked) return;   // 2026-09-06: lines are frozen once posted
+    // The when guard (not an early return) carries "lines are frozen once posted"
+    // (2026-09-06), so the ? overlay hides these verbs on a locked bill.
+    add: { key: 'a', hint: 'add line', when: function () { return !S.locked; }, run: function (api) {
       var row = addLine({});
       updateTotals();
       // bill-line-item-grid-spec.md (2026-09-06): the auto-generated VAT/WHT/
@@ -1254,7 +1275,7 @@ var beForm = FB.form.create({
       // now (2026-09-11) — the attachments zone is a single button cell
       // (open the modal), nothing there for x to delete any more.
       when: function (api) {
-        if (api.cur().z !== 2) return false;
+        if (S.locked || api.cur().z !== 2) return false;
         var row = api.zoneRows(2)[api.cur().r];
         return api.cur().r > 0 && row && !row.classList.contains('bl-auto');
       },
@@ -1265,7 +1286,7 @@ var beForm = FB.form.create({
         row.remove(); updateTotals(); refreshAddRow(); api.refresh();
       } },
     // w always posts (Draft toggle removed 2026-09-06). p is retired.
-    write: { key: 'w', hint: 'save', run: function () { commitBill(); } },
+    write: { key: 'w', hint: 'save', when: function () { return !S.locked; }, run: function () { commitBill(); } },
     // No dedicated key any more — Esc in NORMAL invokes this directly
     // (fb-form.js unifies the Esc doctrine: INSERT Esc exits a field edit,
     // NORMAL Esc exits the whole form). 'q' is retired.
@@ -1288,6 +1309,13 @@ var beForm = FB.form.create({
       { key: 'x', mode: 'NORMAL', hint: 'void (reverse)', hintBar: true,
         when: function () { return S.status === 'posted' && S.amountPaid <= 0.005 && api.cur().z === 0; },
         run: doVoid },
+      // W writes off the remaining balance of a posted, part-paid bill
+      // (2026-11-23, same verb as the Payables list). Part-paid bills can't
+      // be voided; the server enforces the write-off threshold and its refusal
+      // names the amounts.
+      { key: 'W', mode: 'NORMAL', hint: 'write off remainder', hintBar: true,
+        when: function () { return S.status === 'posted' && S.amountPaid > 0.005 && (S.amount - S.amountPaid) > 0.005; },
+        run: doWriteOff },
     ];
   }
 });

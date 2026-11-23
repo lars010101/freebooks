@@ -1330,6 +1330,25 @@
       var i = +tr.dataset.idx;
       return isNaN(i) ? -1 : i;
     }
+    // Does i/Enter edit (or create, on the add row) the focused row? Tree lists
+    // are read-only (#315); otherwise cfg.editable decides per row.
+    function canEditFocused() {
+      var tr = nav && nav.current();
+      if (tr && tr.classList.contains('fb-add-row')) return canAdd;
+      if (cfg.tree) return false;
+      var d = focusedRow();
+      return !!d && (!cfg.editable || !!cfg.editable(d));
+    }
+    // Does x delete something on the focused row? (Tree: the parent.)
+    function canDeleteFocused() {
+      if (!cfg.del) return false;
+      var d = focusedRow();
+      if (!d) return false;
+      if (cfg.tree && d._childOf) d = rowByKey(d._childOf);
+      if (!d) return false;
+      if (d._isNew) return true;
+      return !cfg.deletable || !!cfg.deletable(d);
+    }
     function focusedDirty() {
       var idx = focusedIdx();
       var d = idx >= 0 ? merged()[idx] : null;
@@ -1420,8 +1439,19 @@
           if (window.FB && FB.keys && FB.keys.advanceRegion && FB.keys.advanceRegion(-1)) return;
           if (nav.scrollToTop) nav.scrollToTop();
         } },
-      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, run: editFocused },
-      { key: 'Enter', mode: 'NORMAL', hint: cfg.openRow ? 'open' : 'edit', hintBar: true, paletteEligible: false, run: openFocused },
+      // i / Enter (2026-11-23): the hinted bindings carry a `when` that says
+      // whether the key does something on the focused row RIGHT NOW (the help
+      // overlay lists only bindings whose `when` passes). Each key ends in an
+      // unhinted catch-all with the same run, so a key whose guard fails is
+      // still swallowed here instead of reaching common.js's fallbacks.
+      { key: 'i', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, when: canEditFocused, run: editFocused },
+      { key: 'i', mode: 'NORMAL', paletteEligible: false, run: editFocused },
+      { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, paletteEligible: false,
+        when: function () { return !!cfg.openRow && !!focusedRow(); }, run: openFocused },
+      { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, when: canEditFocused, run: openFocused },
+      { key: 'Enter', mode: 'NORMAL', hint: 'Expand/Collapse', hintBar: true, paletteEligible: false,
+        when: function () { return cfg.tree && !cfg.openRow && !!focusedRow(); }, run: openFocused },
+      { key: 'Enter', mode: 'NORMAL', paletteEligible: false, run: openFocused },
       { key: 'w', mode: 'NORMAL', hint: 'write', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) writeAt(i); } },
       { key: 'u', mode: 'NORMAL', hint: 'undo', hintBar: true, when: focusedDirty, run: function () { var i = focusedIdx(); if (i >= 0) revertAt(i); } },
       // G/gg: cursor to bottom/top AND page to absolute bottom/top (Bills parity —
@@ -1463,7 +1493,7 @@
       { key: 'Tab', mode: 'INSERT', swallow: false, preventDefault: false, run: function () {} }
     ];
     if (cfg.del) {
-      bindings.splice(4, 0, { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, run: deleteFocused });
+      bindings.splice(4, 0, { key: 'x', mode: 'NORMAL', hint: 'delete', hintBar: true, when: canDeleteFocused, run: deleteFocused });
     }
     if (hasFilterSurface()) {
       // Esc peels one layer at a time (never writes): open filter dropdown →

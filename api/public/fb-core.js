@@ -508,17 +508,16 @@
   // so both surfaces speak the same labels. Modifier-gated bindings get an
   // explicit prefix ("Ctrl+Enter post") so the label tells the truth.
   function _groupHints(bs) {
-    var groups = [];
+    // Bindings that share one hint collapse into a single row ("j/k
+    // navigate", "Enter/Space Expand/Collapse"), adjacent or not, in order of
+    // first appearance. Duplicate keys under one hint are listed once.
+    var groups = [], byHint = {};
     for (var i = 0; i < bs.length; i++) {
-      var cur = bs[i];
-      var keysLabel = _keyLabel(cur);
-      while (i + 1 < bs.length && bs[i + 1].hint === cur.hint) {
-        i++;
-        keysLabel += '/' + _keyLabel(bs[i]);
-      }
-      groups.push({ keys: keysLabel, hint: cur.hint });
+      var cur = bs[i], label = _keyLabel(cur), g = byHint[cur.hint];
+      if (!g) { g = byHint[cur.hint] = { keys: label, hint: cur.hint, _seen: {} }; g._seen[label] = 1; groups.push(g); }
+      else if (!g._seen[label]) { g._seen[label] = 1; g.keys += '/' + label; }
     }
-    return groups;
+    return groups.map(function (g) { return { keys: g.keys, hint: g.hint }; });
   }
 
   function _keyLabel(b) {
@@ -526,10 +525,11 @@
   }
 
   // ── `?` help overlay (roadmap P1-6) ───────────────────────────────────────
-  // Which-key-style overlay of the ACTIVE binding set — EXHAUSTIVE (every
-  // binding carrying a hint, NORMAL and INSERT sections), where the sidebar
-  // panel is the curated hintBar subset. Same table, same grouping → cannot
-  // drift from dispatch. The keyboard trigger lives in _dispatch (NORMAL
+  // Which-key-style overlay of what the keys do RIGHT NOW (2026-11-23): every
+  // active binding set in dispatch order, NORMAL-mode bindings with a hint
+  // whose `when` passes in the current context, each key listed once under
+  // the set that would win it. Built from the dispatch table itself, so it
+  // cannot drift from what a keypress does. The keyboard trigger lives in _dispatch (NORMAL
   // mode + not-typing guard); help.open() is the mouse-parity entry point
   // (topbar `?` button) and is deliberately not mode-gated — read-only
   // documentation, closable with Esc like any overlay.
@@ -550,30 +550,54 @@
       return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
     }
 
+    // Would this binding fire if its key were pressed now? Mirrors
+    // _matchBinding's `when` check (2026-11-23: the overlay used to list every
+    // hinted binding, including ones that do nothing in the current context,
+    // e.g. "Edit" on read-only lists or "Void" on a draft bill). A guard that
+    // throws without a real event is treated as applicable.
+    function _applies(b) {
+      if (!b.when) return true;
+      try { return !!b.when({ key: b.key, target: document.body, preventDefault: function () {}, stopPropagation: function () {} }); }
+      catch (e) { return true; }
+    }
+
     function open() {
       if (_el) return true;
-      var cur = _activeSet();
-      var hinted = cur ? cur.set.bindings.filter(function (b) { return !!b.hint; }) : [];
-      // Filter out j/k/h/l — they are already in NAVIGATION. Same shortcut
-      // should never appear in two places. Capitalize first letter of each hint.
+      // Every active set, in dispatch order (focused first): dispatch tries
+      // them all, so help shows them all. A key is listed under the first set
+      // whose applicable binding would win it — the same first-match rule as
+      // _dispatch — and never again under a later set.
       var navKeys = { 'j': 1, 'k': 1, 'h': 1, 'l': 1 };
-      var normal = hinted.filter(function (b) {
-        return (b.mode || 'NORMAL') === 'NORMAL' && !navKeys[b.key];
-      }).map(function (b) {
-        var c = Object.assign({}, b);
-        c.hint = _cap(b.hint);
-        return c;
+      var claimed = {};
+      var sections = [];
+      _dispatchOrder().forEach(function (name) {
+        var set = _sets[name];
+        if (!set || (set.active && !set.active())) return;
+        var rows = [];
+        (set.bindings || []).forEach(function (b) {
+          if ((b.mode || 'NORMAL') !== 'NORMAL' || navKeys[b.key]) return;
+          if (claimed[b.key] || !_applies(b)) return;
+          claimed[b.key] = true;             // first applicable binding wins the key
+          if (!b.hint) return;               // silent bindings still claim their key
+          var c = Object.assign({}, b);
+          c.hint = _cap(b.hint);
+          rows.push(c);
+        });
+        if (rows.length) sections.push({ name: name, rows: rows });
       });
-      // Navigation section — static chrome constants + g-map entries.
-      // Static rows are NOT derived from any binding table.
+      // Navigation section — chrome keys that work on every page.
+      var hasRoutes = (window.FB_ROUTES || []).length > 0;
       var navStatic = [
         { keys: '/', hint: 'Search' },
-        { keys: 'h/l', hint: 'Move left / right' },
+        { keys: 'h/l', hint: 'Previous / next tab (fields on forms)' },
         { keys: 'j/k', hint: 'Move up / down' },
         { keys: 'gg/G', hint: 'Move to first / last row' }
       ];
+      if (document.getElementById('tb-period-trigger')) navStatic.push({ keys: 'p', hint: 'Period selector' });
+      if (hasRoutes) navStatic.push({ keys: 'g w', hint: 'Switch company' });
+      navStatic.push({ keys: 'Esc', hint: 'Close / cancel' });
+      navStatic.push({ keys: '?', hint: 'This help' });
       var navRows = _rows(navStatic);
-      // g-map entries from window.FB_ROUTES, each hint prefixed with "Go to "
       var R = window.FB_ROUTES || [];
       var gRows = [];
       R.forEach(function (r) {
@@ -581,8 +605,11 @@
         gRows.push({ keys: 'g ' + r.gKey, hint: 'Go to ' + r.label });
       });
       if (gRows.length) navRows += _rows(gRows);
-      // Actions heading = the active set's name (capitalized), not "ACTIONS".
-      var actionsHeading = cur ? _cap(cur.name) : 'Actions';
+      var actionsHtml = sections.length
+        ? sections.map(function (sec) {
+            return '<div class="fb-keys-mode">' + esc(_cap(sec.name)) + '</div>' + _rows(_groupHints(sec.rows));
+          }).join('')
+        : '<div class="fb-keys-mode">Actions</div><div class="fb-hint-row fb-keys-none">—</div>';
       _prevFocus = document.activeElement;
       _el = document.createElement('div');
       _el.id = 'fb-keys-overlay';
@@ -593,10 +620,7 @@
             '<div class="fb-keys-nav">' +
               '<div class="fb-keys-mode">NAVIGATION</div>' + navRows +
             '</div>' +
-            '<div class="fb-keys-actions">' +
-              '<div class="fb-keys-mode">' + esc(actionsHeading) + '</div>' +
-              (normal.length ? _rows(_groupHints(normal)) : '<div class="fb-hint-row fb-keys-none">—</div>') +
-            '</div>' +
+            '<div class="fb-keys-actions">' + actionsHtml + '</div>' +
           '</div>' +
         '</div>';
       _el.addEventListener('click', function (ev) { if (ev.target === _el) close(); });

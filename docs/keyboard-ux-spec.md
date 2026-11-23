@@ -22,7 +22,21 @@ a viewer plus a small human correction surface. Consequences for this spec:
   hook, opt-in per list — other lists keep their Enter behaviour; Space
   still folds everywhere. Ratified change 2026-11-22 (#312): the Bills list
   is read-only — inline editing and its `i`/`a`/`w`/`~` verbs are removed
-  there; `+ Add bill` opens `/bill/new` (FB.list `onNew` hook).*
+  there; `+ Add bill` opens `/bill/new` (FB.list `onNew` hook). Ratified
+  change 2026-11-23: on the bill page, `x` on the header deletes a saved
+  draft (confirm) and voids (reverses) a posted bill with nothing paid; it
+  does nothing on a new, paid, part-paid or void bill. `W` writes off the
+  remaining balance of a posted, part-paid bill (same verb as the Payables
+  list; server-side threshold).*
+- **The `?` overlay shows what the keys do right now** (2026-11-23). It lists
+  every active binding set in dispatch order, but only NORMAL bindings whose
+  `when` passes in the current context, each key once under the set that
+  would win it. So a key must carry an accurate `when` to appear correctly:
+  FB.list's `i`/`Enter`/`x` now check the focused row (`canEditFocused`,
+  `canDeleteFocused`) and end in unhinted catch-alls so a failing guard never
+  leaks the key to `common.js`. The navigation column lists `/`, `h/l`
+  (previous/next tab, fields on forms), `j/k`, `gg/G`, `p` (where the period
+  selector exists), `g w`, `Esc`, `?` and the `g` go-to map.
 - **The coverage gate is single-screen.** `test:keys` runs the full
   key-coverage assertions on journal-voucher only; every other route is
   smoke-checked (loads, zero uncaught JS errors). Per-screen exemption

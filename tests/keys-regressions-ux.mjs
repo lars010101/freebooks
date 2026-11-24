@@ -173,6 +173,21 @@ try {
   await page.waitForURL(u => /\/journal\/voucher\?batch=/.test(u.href), { timeout: 5000 }).catch(() => {});
   ok('Enter on a Line items row opens its journal entry', /\/journal\/voucher\?batch=/.test(page.url()), page.url().replace(B, ''));
 
+  // 7. Statements: j reaches the account rows (they used to have no keyboard
+  // path past the one-cell comparison form); Enter opens the account in the GL.
+  await page.goto(`${B}/${CO}/statements`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('#report-body a.doc-link', { timeout: 8000 }).catch(() => {});
+  await blur();
+  h = await help();
+  ok('Statements help offers comparison on the toggle', /comparison/i.test(h), h.replace(/\s+/g, ' ').slice(-200));
+  await blur();
+  await page.keyboard.press('j'); await page.keyboard.press('j'); await page.waitForTimeout(150);
+  const onAcct = await page.evaluate(() => { const c = document.querySelector('#report-body .fb-form-cursor-btn, #report-body .fb-form-cursor'); return c ? c.textContent.trim() : null; });
+  ok('j moves into the Statements account rows', !!onAcct && /^\d{4}$/.test(onAcct), `cursor on: ${onAcct}`);
+  await page.keyboard.press('Enter');
+  await page.waitForURL(u => /t=gl/.test(u.href), { timeout: 5000 }).catch(() => {});
+  ok('Enter on an account opens the General Ledger', /\/journal\?t=gl&account=\d{4}/.test(page.url()), page.url().replace(B, ''));
+
   // 2a. New bill: x on the header does nothing
   await page.goto(`${B}/${CO}/bill/new`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(400); await blur();

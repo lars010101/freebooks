@@ -276,10 +276,12 @@ Tabs: Profit & Loss · Balance Sheet · Cash Flow · Statement of Equity. The fi
 
 | Key | Action | When |
 |-----|--------|------|
-| `~` | Toggle the focused comparison button (MoM / YoY; again = none) | P&L, Balance Sheet, Cash Flow |
+| `j`/`k` | Move from the comparison toggle down through the account rows | |
+| `~` | Cycle the comparison (single period → MoM → YoY) | Cursor on the toggle (P&L, Balance Sheet, Cash Flow) |
+| `Enter` | Open the account in the General Ledger | Cursor on an account row |
 | `p` | Period selector | |
 
-`j`/`k` move through the filter form, not the report rows. Account codes link to the General Ledger by click only; there is no keyboard path to them yet.
+The toggle and the account rows are one form (`reports`): the toggle is its first row, each account row with a code is a row whose one cell is the code link.
 
 ### 5.5 Journal (`/:company/journal`)
 
@@ -566,4 +568,4 @@ Every detail view honors a return stack: `Esc` returns to the exact screen, scro
 | 2026-08-04 | Drill-through fix: PL/BS account rows → GL (not TB); reports hub forwards ?account= to report iframe; GL filter bar prefilled from URL |
 | 2026-08-05 | Receivables stub removed from sidebar + `g v` keybind dropped; route + page handler deleted (AR module dropped, §0m) |
 | 2026-08-18 | Bank Import page removed from spec (done through agent inbox); Opening Balances feature removed (use journal voucher instead); orphaned nav-registry entry + redirect + new-company link cleaned up |
-| 2026-11-24 | §5 replaced with a per-page key reference checked against the code; §3.1/§4/§9/§10 stale keys removed (`{`/`}`, `A`, global `~`, `o`, `d`, `q`, `R`, `c` clear filters); Enter on read-only register rows drills again |
+| 2026-11-24 | §5 replaced with a per-page key reference checked against the code; §3.1/§4/§9/§10 stale keys removed (`{`/`}`, `A`, global `~`, `o`, `d`, `q`, `R`, `c` clear filters); Enter on read-only register rows drills again; Statements account rows reachable with j/k + Enter |

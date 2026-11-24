@@ -344,6 +344,7 @@ ${layoutEnd()}
     container.innerHTML = pageOuterHtml;
     if (window.FB && FB.util && FB.util.execInlineScripts) FB.util.execInlineScripts(container);
     attachComparisonControls();
+    if (rptForm) rptForm.refresh();
   }
 
   function renderMessage(msg, isErr) {
@@ -479,6 +480,7 @@ ${layoutEnd()}
      the frozen-verb-surface doctrine, not a like-for-like move, so it
      needs its own explicit ratification if wanted. ── */
 
+  var ACCOUNT_ROWS = ${showComparison ? 'true' : 'false'};
   var rptForm = FB.form.create({
     formId: 'reports',
     onCommit: function () { fbLoadReport(); },
@@ -495,11 +497,27 @@ ${layoutEnd()}
         },
         cells: function (row) {
           return [document.getElementById('rpt-period-toggle')].filter(Boolean);
-        } }
+        } },
+      // Statements only (2026-11-24): the report's account rows are a second
+      // zone, so j steps from the comparison toggle into them and Enter on
+      // an account code opens it in the General Ledger (anchor cell = click,
+      // same as AP Control). Before this the one-cell filter form owned j/k
+      // and the rows had no keyboard path. The Journal page leaves its rows
+      // to their own FB.list (Transactions, Line items, GL) or to common.js
+      // (Trial Balance).
+      { id: 'accounts', rows: function () {
+          if (!ACCOUNT_ROWS) return [];
+          var b = document.getElementById('report-body');
+          if (!b) return [];
+          return Array.prototype.slice.call(b.querySelectorAll('tr')).filter(function (tr) { return !!tr.querySelector('a.doc-link'); });
+        },
+        cells: function (row) { return [row.querySelector('a.doc-link')].filter(Boolean); } }
     ],
     extraBindings: function (api) {
       return [
-        { key: '~', mode: 'NORMAL', hint: 'comparison', hintBar: true, run: function () {
+        { key: '~', mode: 'NORMAL', hint: 'comparison', hintBar: true,
+          when: function () { var el = api.cellEl(); return !!el && el.id === 'rpt-period-toggle'; },
+          run: function () {
             var el = api.cellEl();
             if (el && el.id === 'rpt-period-toggle') el.click();
           } }

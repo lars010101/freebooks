@@ -167,6 +167,11 @@ try {
   await page.waitForTimeout(150);
   const f = await focused();
   ok('j moves the Line items list after leaving Transactions', /^jl-body#[1-9]/.test(f || ''), `focused: ${f}`);
+  // 6. Enter on a read-only register row drills to the entry (ia-spec §10);
+  // FB.list used to swallow Enter there and do nothing.
+  await page.keyboard.press('Enter');
+  await page.waitForURL(u => /\/journal\/voucher\?batch=/.test(u.href), { timeout: 5000 }).catch(() => {});
+  ok('Enter on a Line items row opens its journal entry', /\/journal\/voucher\?batch=/.test(page.url()), page.url().replace(B, ''));
 
   // 2a. New bill: x on the header does nothing
   await page.goto(`${B}/${CO}/bill/new`, { waitUntil: 'networkidle' });

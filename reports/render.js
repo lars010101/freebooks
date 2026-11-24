@@ -948,6 +948,9 @@ async function buildJournal(query, company, start, end) {
       var batch = _jlBatchByKey[tr.dataset.key];
       var repeat = batch !== undefined && batch === lastBatch;
       lastBatch = batch;
+      // Every line drills to its entry on Enter (FB.list follows data-href),
+      // not just the first line, which is the only one showing the Doc No link.
+      if (batch) tr.setAttribute('data-href', drillHref(batch));
       if (repeat) {
         ['date', 'journal', 'reference'].forEach(function (f) {
           var td = tr.querySelector('td[data-field="' + f + '"]');

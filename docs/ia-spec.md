@@ -1,6 +1,6 @@
 # freebooks — Interaction Architecture Spec (IA Spec)
 
-**Date:** 2026-08-18 · **Status:** RATIFIED (magnus, Slack design thread) · **Scope:** All views, all modes, all verbs — the complete keyboard/interaction contract
+**Date:** 2026-08-18, keys updated 2026-11-24 · **Status:** RATIFIED (magnus, Slack design thread) · **Scope:** All views, all modes, all verbs — the complete keyboard/interaction contract
 **Consumers:** `api/src/nav-registry.js`, `api/public/fb-core.js`, `api/public/fb-list.js`, `api/public/fb-form.js`, `api/public/common.js`, `api/src/pages/*.js`
 **Companions:** `keyboard-ux-spec.md` (K1–K5 program history), `fb-list-ux-spec.md` (list machine), `agent-readiness-spec.md` (A1–A5 agent model), `UI.md` (typography/colour)
 
@@ -21,12 +21,11 @@ freebooks is **agent-first** (ratified 2026-07-31, magnus — roadmap (deleted 2
 
 ## 1. Route Registry — the single source of truth
 
-Every app route lives once in `api/src/nav-registry.js`. Four consumers share the table so navigation can never drift:
+Every app route lives once in `api/src/nav-registry.js`. Three consumers share the table so navigation can never drift:
 
 1. **Sidebar** — `navBar()` renders `.sb-nav` anchors from entries with `sidebar: true`.
-2. **`{`/`}` cycling** — `common.js` reads the rendered `.sb-nav` anchors.
-3. **`g`-prefix go-to map** — `fb-core.js` reads `window.FB_ROUTES` (injected by `navBar`) and maps `gKey` letters → routes.
-4. **Command palette** — entries with `palette: true` surface as `Go to {label}` rows.
+2. **`g`-prefix go-to map** — `fb-core.js` reads `window.FB_ROUTES` (injected by `navBar`) and maps `gKey` letters → routes.
+3. **Command palette** — entries with `palette: true` surface as `Go to {label}` rows.
 
 Entry shape: `{ key, route, label, icon, sidebar, gKey, palette, absolute }`. `route` uses the `:company` placeholder; `absolute: true` for company-less routes (`/setup/new-company`).
 
@@ -76,7 +75,7 @@ Two modes, managed by `FB.mode` (fb-core):
 
 | Mode | Entered by | Exited by | DOM focus | Purpose |
 |------|-----------|-----------|-----------|---------|
-| **NORMAL** | `Esc` from INSERT; page load; `q` quit | `i`/`Enter` on editable cell; click into input | **None** — cursor is a CSS class, not DOM focus | Navigation, verbs, page-level actions |
+| **NORMAL** | `Esc` from INSERT; page load | `i`/`Enter` on editable cell; click into input | **None** — cursor is a CSS class, not DOM focus | Navigation, verbs, page-level actions |
 | **INSERT** | `i`/`Enter` on cell; click into input/select/textarea | `Esc` (never writes); `Enter` on last cell (advance) | The edited element | Text/number/date entry, select stepping |
 
 **Rules:**
@@ -95,7 +94,7 @@ Two modes, managed by `FB.mode` (fb-core):
 
 Every flat register in the app. A screen declares columns + actions; the framework owns ALL behavior.
 
-**Migrated:** Settings (Periods, COA, Tax Codes, Journals, Company attrs), Partners, FX Rates, Bills (`tree: true`), Bank Mappings, Inbox, Journal.
+**Used by:** every list in the app; §5 names them per page. Tree lists (`tree: true`: Inbox, Bills, Aging) are read-only (#315).
 
 **Core contract:**
 
@@ -103,15 +102,16 @@ Every flat register in the app. A screen declares columns + actions; the framewo
 |------|-----|--------|
 | read | `j`/`k` | Navigate rows, sticky ends; the add row is a nav position (bottom) |
 | read | `gg` / `G` | First row / bottom (= add row) — framework-level |
-| read | `i` / Enter / click cell | Edit focused row; on the add row = create. Tree mode: on a child = edit the parent bill (whole-bill unit); on a posted bill = no-op (`editable` false) |
+| read | `i` / Enter / click cell | Edit the focused row (editable rows only); on the add row = create |
+| read | Enter | Read-only rows: open the row's page (`openRow`) or follow its link (`data-href` / first anchor — report drill-through, §10); tree rows without `openRow`: fold |
 | read, tree | `Space` / click ▸ | Fold — toggle the parent under the cursor (children lazy-fetch on first open); inert on the add row |
-| read, tree | `a` | Add child to the focused draft bill |
-| read | `x` | Delete — confirm for saved rows; no-op on `deletable:false` rows; discards dirty-new rows |
+| read | `x` | Delete — confirm for saved rows; only where the list deletes and the row is deletable; discards dirty-new rows |
 | read, dirty | `w` / ✓ chip | **Write — the only save** |
 | read, dirty | `u` / ✕ chip | Undo to saved values |
 | edit | Enter / Tab / Shift+Tab | Next / prev field, sticky ends — never saves |
 | edit | Esc | Dropdown open → close dropdown; otherwise exit to read, buffer stays dirty |
-| any | `h`/`l` · `{`/`}` · `?` | Shared chrome via common.js / FB.keys |
+| read | `Esc` | Close an open filter dropdown; else clear all filters (the only clear-filters key) |
+| any | `h`/`l` · `?` | Shared chrome via common.js / FB.keys |
 
 **Add row:** A plain muted text row pinned at the **bottom** of the list, reading `+ Add entry`. Reachable by click; `j` (sticky past the last data row); `G`. `i`/`Enter`/click transforms it in place into the live navy edit row (INSERT mode, first field focused).
 
@@ -119,7 +119,7 @@ Every flat register in the app. A screen declares columns + actions; the framewo
 
 **Filtering:** Per-column dropdown (mouse) + topbar search input (keyboard) render the same filter state. NORMAL-mode `Esc` peels one layer (clears all filters). Edit/dirty rows always bypass filters.
 
-**List-level verbs:** `actions: [{ key, label, handler(api) }]` — each gets a NORMAL-mode key binding + a small mouse-parity button above the table. Must not edit existing rows. Example: Inbox `f` = cycle status filter.
+**List-level verbs:** `actions: [{ key, label, handler(api) }]` — each gets a NORMAL-mode key binding + a small mouse-parity button above the table. Must not edit existing rows. Example: Exchange Rates `f` = fetch ECB rates.
 
 **Row verbs:** `rowVerbs: [{ key, label, when(row), affordance(row), run(api,row) }]` — per-row verb predicates. Active only on rows whose predicate passes. Example: Inbox `y`/`x` only on `proposed` rows.
 
@@ -162,19 +162,18 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 | `g` + letter | Go-to map (see §1) | Global, NORMAL only, never in editable targets, never with Ctrl/Alt/Meta |
 | `g g` | List cursor to first row, then **absolute page top** (both scroll containers, next frame) | Global |
 | `G` | Last row + **absolute page bottom** | Global |
-| `{` / `}` | ~~Sidebar prev/next page~~ — see 2026-09-19 correction below | Global, NORMAL only |
-| `h` / `l` | Horizontal tab prev/next (on `.tabs` pages) | Global, NORMAL only |
+| `h` / `l` | Previous / next tab on `.tabs` pages; previous / next cell on forms without tabs | Global, NORMAL only |
 | `j` / `k` | Table row prev/next (with visual focus) | Global, NORMAL only |
-| `Enter` | Activate focused row (follow link or click) | Global, NORMAL only |
+| `Enter` | Activate the focused row (follow its link, else click it); lists and forms bind their own `Enter` first | Global, NORMAL only |
+| `p` | Period selector | Pages with the topbar period selector |
+| `g w` | Company switcher | Global |
 | `/` | Focus topbar global search | Global, NORMAL only |
-| `?` | Which-key overlay (active binding set) | Global, NORMAL only |
+| `?` | Help overlay: the keys that work here right now, per active binding set (only bindings whose `when` passes) | Global, NORMAL only |
 | `Esc` | Peel one layer (see §2) | Global |
-| `A` | Attach (page-registered) | Global, NORMAL only |
-| `~` | **Universal toggle verb** — toggles the state of the ACTIVE CELL / focused control | Global, NORMAL only |
 
 **2026-09-01 update:** the `:`/Ctrl+K "Command palette" row above is removed — `:` command mode was fully retired (`global-search-spec.md`), leaving `/` as the sole summon key. Ctrl+K has no binding.
 
-**Correction (2026-09-19):** the `{`/`}` "Sidebar prev/next page" row above does not exist in the shipped app. `ia-restructure-spec.md` §0.1 (2026-08-11) already proved this by a full grep of every shipped public JS file for a `{`/`}` handler and found none, flagging it as stale — that correction was never carried into this file until now. `{`/`}` today only does anything on pages with a `.tabs` strip, where it switches tabs *within* that page (§3.2's tab-strip precedence, same behavior as `h`/`l` on tabbed pages); it does not cycle between top-level sidebar sections.
+**Correction (2026-09-19, updated 2026-11-24):** `{`/`}` are not bound anywhere (the row was removed from the table above), and neither are `A` (attach) or a global `~` — `~` is a page verb where §5 lists it. `ia-restructure-spec.md` §0.1 (2026-08-11) already proved this by a full grep of every shipped public JS file for a `{`/`}` handler and found none, flagging it as stale — that correction was never carried into this file until now. Tabs switch with `h`/`l` only.
 
 **`g`-prefix dispatch semantics (fb-core `_dispatch`, capture phase):**
 - One pending-`g` state (500 ms window). Arming: bare `g` in NORMAL mode, never in editable targets, never with Ctrl/Alt/Meta, and only when no active page set claims `g`.
@@ -192,109 +191,181 @@ For non-table surfaces (dashboard cards, report links). `FB.nav.create({ grid })
 
 ---
 
-## 5. Per-View Interaction Contracts
+## 5. Per-Page Key Reference
 
-### 5.1 Inbox (`/:company`) — A5 unified review queue
+**As of 2026-11-24, checked against the code** (a crawl of every page and tab plus the binding sources). This replaces the older per-view contracts, which described pages that have since been renamed, merged or removed. Press `?` on any page to see the keys that work there right now: the overlay lists only the keys that would do something in the current state (§4).
 
-- **Machine:** FB.list (`tree: true`, `canAdd: false`, `editable: false`)
-- **Data:** `inbox.list` — Class A (journal proposals) + Class B (bills due/overdue)
-- **Grouping:** Items group by `item.type` under a collapsible group header row. `Enter`/`click` folds/unfolds. Fold state client-side per type.
-- **Status filter (`f`):** Three-state cycle — `proposed` → `rejected` → `bills` → `proposed`. Default view: `proposed` (Class A queue). `rejected` is the graveyard (void doctrine). `bills` is Class B (filter, not default).
-- **Row verbs:**
-  - `y` — approve (confirm modal: date, line count, total debit, optional note; `Enter` confirms; `Esc` cancels). Only on `proposed` rows.
-  - `x` — reject (FB.modal with **required** note input; `Enter` submits when non-empty; `Esc` cancels). Only on `proposed` rows.
-  - `Enter` — unfold lines read-only (tree idiom). On group headers: fold/unfold.
-  - `o` — open bill in Payables (Class B `bill_due` rows only).
-- **Source-document indicators:** Folded `PROPOSED` rows show a 📎 N badge (attachment_count > 0) or a ⚠️ warning icon (0 attachments — tooltip: "No source document attached"). VAT tolerance flags render a ⚠️ icon (tooltip: "VAT tolerance flag"). Unfolding a `PROPOSED` row lazily fetches `attachment.list` and renders shared `FB.attachments.rowHtml` rows linking to `GET /api/attachments/:id` (`target _blank`).
-- **Badge:** Sidebar Inbox item shows pending-proposal count, refreshed on soft-nav and on `fb:queue-changed`.
-- **Empty state:** "Nothing to review — agent-proposed journal batches will appear here."
+Every page also has the global keys (§4). Lists and forms share the standard keys below. The per-page tables list only what a page adds or changes.
 
-### 5.3 Journal → Voucher Register (Reports hub)
+### 5.0 Standard keys
 
-The Journal sidebar page dissolved into the Reports hub on 2026-08-03 (Step 3). The posted register is now the **Voucher Register** report (`type=voucher-register`) rendered inside the Reports iframe. The legacy `/:company/journal` route 302-redirects to `/:company/reports?t=voucher-register`.
+**Lists (FB.list).** These apply on every list unless the page says it is read-only.
 
-- **Machine:** Report iframe (self-contained HTML, inline styles) — not an FB.list surface.
-- **Data:** `journal_entries` grouped server-side by `batch_id` (date DESC). One row per posted batch: date, reference, description, total debit/credit, source, line count.
-- **Reverse verb:** Each non-reversed voucher row has a **Reverse** button that calls `POST /api/action` with `action: 'journal.reverse', batchId`. On success the row flips to **Reversed** and the new reversal batch is prepended as a fresh row. Idempotent (server refuses double-reversal).
-- **Reversal chains:** `reversed_by` set → **Reversed** badge + link to the reversal batch. `reverses` set → **Reversal** badge + link to the original batch.
-- **Date-range filter:** Start/end inputs re-query via the report endpoint.
-- **g j freed:** The `g j` go-to letter is no longer assigned (the register lives inside Reports = `g r`).
+| Key | Action | When |
+|-----|--------|------|
+| `j`/`k` · `gg`/`G` | Move the row cursor; first / last row | Always |
+| `Enter` | Open the row's page, or drill to its entry | Rows that link somewhere (read-only registers, Bills, Aging) |
+| `i` / `Enter` | Edit the row; on the `+ Add entry` row, create one | Editable rows only |
+| `Space` / `Enter` | Fold / unfold | Tree lists (Inbox, Bills, Aging) |
+| `w` / `u` | Write (the only save) / undo | Only on a row with unsaved changes |
+| `x` | Delete, after a confirm | Lists that delete, on rows that can be deleted |
+| `Esc` | Clear all filters (also clears the topbar mirror) | While a filter is on |
 
-### 5.4 Journal-new (`/:company/journal/voucher`) — JV entry form
+A **read-only list** has no add row and no `i`/`w`/`u`; it keeps `j`/`k`, `Enter` and `Esc`, plus any page verbs.
 
-- **Machine:** FB.form
-- **Zones:** reversal panel (present only in reversal mode) → header fields (date/journal/desc) → attachment queue → JV line grid
-- **Verbs:**
-  - `a` — add line (cursor + edit)
-  - `x` — delete line / remove staged attachment
-  - `w` — post (disabled-guard: out-of-balance blocks)
-  - `q` — quit (fbNavigate to dashboard)
-  - `R` — reversal mode (vim's R = replace mode). Esc contract: INSERT-Esc from the search ONLY exits edit → NORMAL (reversal stays active); NORMAL-Esc cancels the whole reversal.
-  - `A` — attach (opens file picker for pending queue)
-- **Reversal search:** Min-length 1; arrows/Enter navigate results; Esc closes.
-- **Reversal pick:** Cursor lands on the header date cell in NORMAL (search blurred, results collapsed). Original entry renders read-only (grayed, italic) above the editable swapped rows.
-- **Attachment queue:** FB.form zone (read-only rows, no cells). `j`/`k` reach it, `x` removes the cursor row.
+**Forms (FB.form).**
 
-### 5.5 Bank — dissolved (2026-08-09, issue #137)
+| Key | Action |
+|-----|--------|
+| `j`/`k` | Next / previous row (column kept) |
+| `h`/`l` | Next / previous cell, on forms without tabs (on tabbed pages `h`/`l` switch tabs) |
+| `Tab` / `Shift+Tab` | Next / previous cell |
+| `i` / `Enter` | Edit the cell (button cells: press it) |
+| `Space` | Press a button cell |
+| `Esc` | In a field: stop editing (never saves). Otherwise: leave the page, where the page has a quit verb |
+| `G` | Last row |
 
-The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) were deleted. The old `/:company/bank` URL 302-redirects to `/:company/reports`. Bank reconciliation is being moved to a report. The server handlers in `api/src/bank.js` (`bank.match`, `bank.reconcile.*`) are kept for the agent feed-watcher + reconcile actions. Bank imports are handled through the agent inbox, not a dedicated import wizard.
+### 5.1 Inbox (`/:company`)
 
-### 5.6 Bills (`/:company/bills`)
+All four tabs are read-only lists.
 
-- **Tabs:** Bills · Partners
-- **Machine:** FB.list (`tree: true` for Bills; flat for Partners)
+| Tab | Key | Action | When |
+|-----|-----|--------|------|
+| Transactions | `y` | Approve / post | Proposed rows |
+| | `x` | Reject (note required) | Proposed rows |
+| | `c` | Correct & resubmit (opens the journal-entry editor in correction mode) | Rejected journal entries |
+| | `~` | Toggle full / partial settlement | Proposed bank matches that settle a bill |
+| | `Enter` / `Space` | Unfold the lines | |
+| Partners | `y` / `x` | Approve / reject the proposed partner (the row's inputs are read at approval) | Proposed rows |
+| New Rule | `y` / `x` | Approve / reject the proposed rule | Proposed rows |
+| Failed Input | `x` | Discard | Every row |
+| | `r` | Retry (re-queue for the agent) | Every row |
 
-**Bills tab:**
-- `j`/`k` navigate the flattened sequence (parents + open children), sticky ends
-- `Space` / click ▸ — fold/unfold (children lazy-fetch on first open; collapsed-by-default)
-- `i`/`Enter` — edit the whole bill (parent + all children as one unit); on a posted bill = no-op
-- `a` — add child line to the focused draft bill
-- `x` — delete bill (confirm for saved); on a dirty-new row = discard
-- `w` — write the whole bill in one request (header + lines)
-- `u` — undo all
-- `p` — post (draft → posted); on posted/partial → inline payment row
-- `o` — new bill (master object)
-- `A` — attach (bill-level)
-- Column filters: `filterType` per column; `Esc` peels (clears all)
-- Sortable columns: click header cycles asc → desc → none (mouse-only, no verb)
+Transactions opens filtered to proposed rows; `Esc` clears the filter so rejected rows show too.
 
-**Partners tab:**
-- Standard FB.list contract
-- `~` — toggle active (universal toggle verb)
+### 5.2 Payables (`/:company/payables`)
 
-### 5.7 Reports (`/:company/reports`)
+| Tab | Key | Action | When |
+|-----|-----|--------|------|
+| Bills (read-only) | `Enter` | Open the bill page | Any bill |
+| | `Space` | Fold / unfold lines and payments | |
+| | `y` | Post (draft) / pay (opens New Payment for the bill) | Draft or posted bills |
+| | `x` | Delete the draft | Draft bills |
+| | `x` | Void the bill | Posted or paid bills |
+| | `x` | Void the payment | A payment row under a bill |
+| | `W` | Write off the remaining balance (server-side threshold) | Posted bills with a balance |
+| Vendors | standard list | Add, edit, delete partners | |
+| | `~` | Toggle active | |
+| Aging (read-only) | `Enter` | Open the bill | Bill rows |
+| Control | form | As-of date form | |
 
-- **Machine:** FB.form (header-only form: report/period selects + date cells + MoM/YoY/download button cells)
-- **Keys:**
-  - `h`/`l` — navigate cells (report type, period, start date, end date, MoM, YoY, download)
-  - `i`/`Enter` — edit cell (selects open overlay; dates enter INSERT)
-  - `~` — toggle the focused comparison button (MoM/YoY; re-toggle → none)
-  - `d` — download menu with `j`/`k`/`Enter`/`Esc` mini-scope
-- **onCommit hook:** `fbLoadReport()` fires on any committed cell change, debounced.
-- **Report viewer:** `<iframe>` with `FB.util.forwardIframeKeys` so parent keybindings survive focus inside the frame.
+New bills start from `+ Add bill`, which opens the bill page (§5.10).
+
+### 5.3 Bank (`/:company/bank`)
+
+| Tab | Key | Action | When |
+|-----|-----|--------|------|
+| Payments (read-only) | `x` | Void the payment | Payments not yet voided |
+| Reconciliation (read-only) | — | Standard read-only list keys | |
+
+Payments opens filtered to posted payments; `Esc` clears the filter so voided ones show too.
+
+### 5.4 Statements (`/:company/statements`)
+
+Tabs: Profit & Loss · Balance Sheet · Cash Flow · Statement of Equity. The filter bar is a form; `h`/`l` switch tabs, so use `Tab`/`Shift+Tab` between its cells.
+
+| Key | Action | When |
+|-----|--------|------|
+| `~` | Toggle the focused comparison button (MoM / YoY; again = none) | P&L, Balance Sheet, Cash Flow |
+| `p` | Period selector | |
+
+`j`/`k` move through the filter form, not the report rows. Account codes link to the General Ledger by click only; there is no keyboard path to them yet.
+
+### 5.5 Journal (`/:company/journal`)
+
+| Tab | Key | Action |
+|-----|-----|--------|
+| Transactions (read-only) | `Enter` | Open the entry (the bill page for a bill's entry) |
+| Line items (read-only) | `Enter` | Open the line's entry |
+| Trial Balance | `Enter` | Open the account in the General Ledger |
+| General Ledger (read-only) | `Enter` | Open the line's entry (opening and closing rows have none) |
+
+`p` opens the period selector on every tab.
+
+### 5.6 Calendar (`/:company/calendar`)
+
+| Tab | Key | Action | When |
+|-----|-----|--------|------|
+| Periods | standard list | Add, edit, delete periods | |
+| Reminders | — | No page keys | |
+| Close Checklist | `j`/`k` | Move between checklist rows | |
+| | `~` | Attest / un-attest | Manual checklist rows |
+
+### 5.7 Documents (`/:company/documents`)
+
+No page keys; `j`/`k` and `Enter` work on the table through the global fallbacks.
 
 ### 5.8 Settings (`/:company/settings`)
 
-- **Tabs:** Company · Posting Rules · AI
-- **Machine:** FB.list (all tabs except Company danger zone)
+| Tab | Key | Action | When |
+|-----|-----|--------|------|
+| Company | standard list | Edit one attribute per row; `w` saves it. No add, no delete | Editable attributes |
+| Access | standard list | Grants: add, edit, `x` revoke | Not on global grants |
+| | `x` | API tokens: revoke (the list is otherwise read-only) | |
+| Extensions | standard list | Posting rules and AI attributes | Editable attributes |
+| | `Enter` | Run the connection test | The AI test row |
 
-**Company tab:**
-- FB.list attribute/value grid (`canAdd: false` — fixed rows, no add, no delete)
-- Per-row typed editors (text/number/checkbox/select) resolved from server-sent row shape
-- `w` writes ONE attribute via `company.attr.save`; `u` undoes; `Esc` never saves
-- **Danger zone:** Type the exact company name to arm `Delete company`; `Enter` in the input fires it; server refusals surface in the modal's error slot. `#cr-delete-btn` is mouse-only by ratified design (danger zone: GitHub/QBO pattern).
+On Access both lists are live. A key both lists use belongs to the list you last clicked; the grants list by default.
 
-**Posting Rules / AI tabs:**
-- Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` undo, `x` delete, `Esc` clear filters)
+The danger zone (delete company) is mouse-only by design: type the company name, then `Enter` in that input.
 
-> **Note:** Periods, COA, Tax Codes, Journals, and Exchange Rates moved to the Master Data page (`/:company/master-data`) on 2026-08-11. Partners also moved there from Bills.
+### 5.9 Accounting and Exchange Rates
 
-### 5.9 New Company (`/setup/new-company`)
+| Page / tab | Key | Action |
+|------------|-----|--------|
+| Accounting: Chart of Accounts, Tax Codes, Journals, Cost/Profit Centers | standard list | Add, edit, delete |
+| Accounting: Integrity | — | No page keys |
+| Exchange Rates (`/:company/exchange-rates`) | standard list | Add, edit, delete rates |
+| | `f` | Fetch ECB rates |
 
-- **Machine:** FB.form
-- **Zones:** one zone row per field (vertical stack) → periods grid
-- **Verbs:** `a` add period, `x` delete period, `w` create
-- **No sidebar chrome** — hint rendering no-ops; hints render inline (`#nc-hints`)
+### 5.10 Bill page (`/:company/bill/new`, `/:company/bill/:id`)
+
+A form: header → lines → attachments (one button that opens the attachments dialog). A posted bill is read-only.
+
+| Key | Action | When |
+|-----|--------|------|
+| `a` | Add a line | New and draft bills |
+| `x` | Delete the focused line (not computed tax rows) | Line rows, new and draft bills |
+| `w` | Save, which **posts** the bill: a new bill is created posted, a draft is posted (labelled "save" in `?` and on the button) | New and draft bills |
+| `x` | Delete the draft, after a confirm | Cursor on the header, saved draft |
+| `x` | Void (reverse), after a confirm | Cursor on the header, posted bill with nothing paid |
+| `W` | Write off the remaining balance | Posted, part-paid bill |
+| `Esc` | Leave the page | |
+
+`x` on the header does nothing on a new, paid, part-paid or void bill. A draft can also be posted from the Bills list (`y`).
+
+### 5.11 Journal entry (`/:company/journal/voucher`)
+
+A form: reversal panel (in reversal mode only) → header → attachments → lines.
+
+| Key | Action | When |
+|-----|--------|------|
+| `a` | Add a line | New entry, or while reversing |
+| `x` | Delete the focused line / staged attachment | Line or attachment rows |
+| `w` | Post (blocked while out of balance) | New entry, or while reversing |
+| `x` | Enter reversal mode | Cursor on the header |
+| `↑`/`↓` · `Enter` · `Esc` | Move through / pick a search result / close the search | Reversal search field |
+| `Esc` | Cancel reversal mode; otherwise leave the page | |
+
+**Viewing a posted entry** (`?batch=<id>`) is read-only: no `a`/`w`. `x` on the header reverses that entry, and `Esc` returns to where you came from (§10.4). **Correcting a rejected proposal** (`?correct=<id>`, from Inbox `c`) opens the entry for editing and resubmission.
+
+### 5.12 Other pages
+
+| Page | Keys |
+|------|------|
+| New Payment (`/:company/payment/new`) | No page keys besides `Esc`, which goes back to Payables (outside a field). Fields are filled with the mouse and `Tab` |
+| Chat (`/:company/chat`) | In the message box: `Enter` sends, `Shift+Enter` adds a new line |
+| New Company (`/setup/new-company`) | Form: `a` add a period, `x` delete the period, `w` create the company |
 
 ---
 
@@ -368,9 +439,9 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 
 ## 8. Attachment Model
 
-- **`A` = attach everywhere** (K4, ratified 2026-07-28). Legacy pages route shift-a to a page-registered `attach` verb; FB.form pages declare `A` as an extraBinding.
+- **No attach key.** The K4 `A` = attach verb (2026-07-28) is no longer bound anywhere (checked 2026-11-24): attachments are added with the page's attach button (the bill page's opens the attachments dialog) or through the API.
 - Attachment queues are **FB.form zones** (journal-voucher pending queue: `j`/`k` rows, `x` removes the staged file) or shared `.fb-attach-row` markup + `FB.attachments` helpers.
-- Attachment rows are read-only (no inline edit, no add row — `A` is the create verb).
+- Attachment rows are read-only (no inline edit, no add row).
 - **Disk controls (A4):** 15 MB per-file cap for `journal_proposal` uploads; pdf/jpg/png whitelist; sha256 dedupe per company. Other entity types keep the 32 MB status quo.
 
 ---
@@ -379,22 +450,22 @@ Upload → bound to `entity_type`/`entity_id` → on approve re-pointed to `enti
 
 | Key | Meaning | Context |
 |-----|---------|---------|
-| `o`/`O` | **New** master object (opens a new top-level entity) | FB.list screens |
-| `a`/`A` | **Add** child to an existing parent (bill line, attachment) | FB.list tree mode; `A` = attach everywhere |
+| `a` | **Add** a line / period | Bill page, journal entry, new company |
 | `i`/`Enter` | Edit cell / activate row / create from add row | Universal |
 | `Esc` | Peel one layer; never writes | Universal |
 | `w` | **Write — the only save** | Universal |
 | `u` | Undo to saved values | FB.list |
-| `x` | Delete / discard | Universal |
-| `y`/`x` | Approve / reject (review pair) | Inbox queue only |
-| `~` | **Universal toggle verb** — toggles the state of the ACTIVE CELL / focused control | Universal |
+| `x` | Delete / discard; on a posted document's header, void or reverse it | Universal |
+| `y`/`x` | Approve / reject (review pair); Bills: `y` post / pay | Inbox, Bills |
+| `W` | Write off the remaining balance | Bills list, bill page |
+| `~` | **Toggle verb** — toggles the focused row's or cell's state | Where a page binds it (§5) |
 | `Space` | Activate the focused toggle/button (parity alias of `~`/`Enter`) | FB.form button cells |
-| `c` | Clear filters | FB.list filter surfaces |
-| `f` | Cycle filter (list-level action) | Inbox (status), Bank (cleared), FX (fetch rates) |
-| `d` | Download menu / delete (page-dependent) | Reports (download), legacy pages (delete) |
-| `p` | Post / pay (page-dependent) | Payables (post bill / pay) |
-| `q` | Quit / navigate away | FB.form pages |
-| `R` | Reversal mode | journal-voucher only |
+| `c` | Correct & resubmit a rejected journal entry (clear filters retired 2026-11-24 — use `Esc`) | Inbox |
+| `r` | Retry | Inbox Failed Input |
+| `f` | Fetch rates (list-level action) | Exchange Rates |
+| `p` | Period selector | Global, where present |
+| `Esc` | Leave the page (`quit` verb) when nothing else is open | FB.form pages |
+| `x` on the header | Reversal mode | Journal entry |
 | `gg`/`G` | First row / last row | Framework-level |
 | `?` | Which-key overlay | Global |
 | `/` | Focus topbar search | Global |
@@ -436,20 +507,20 @@ No verbs on reports. All corrections happen in detail views:
 
 | Source | Correction path |
 |---|---|
-| Manual journal entry / reversal / agent | journal-voucher view mode → `R` (reversal mode) |
-| Bill (AP) | Bill detail → void (unpaid) or credit memo (paid — not yet built) |
+| Manual journal entry / reversal / agent | journal-voucher view mode → `x` on the header (reversal mode) |
+| Bill (AP) | Bill page → `x` void (nothing paid), `W` write off the remainder (part-paid), credit memo (paid — not yet built) |
 | Sales invoice (AR) | Invoice detail → void or credit memo (module unbuilt) |
 
 ### 10.4 Return-to-origin
 
-Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, scroll position, and cursor position the user came from. Not a hardcoded destination. The origin's full state (route, scroll, cursor, filters) is pushed on drill and popped on return.
+Every detail view honors a return stack: `Esc` returns to the exact screen, scroll position, and cursor position the user came from. Not a hardcoded destination. The origin's full state (route, scroll, cursor, filters) is pushed on drill and popped on return.
 
 ### 10.5 journal-voucher view mode
 
 `/:company/journal/voucher?batch=<batchId>` loads a posted batch read-only:
 - Header fields and lines render populated, non-editable.
-- `R` enters reversal mode pre-targeted at that batch (the existing reversal flow).
-- `Esc`/`q` returns to the origin (§10.4).
+- `x` on the header enters reversal mode pre-targeted at that batch (the existing reversal flow).
+- `Esc` returns to the origin (§10.4).
 - Source documents (attachments) visible in the attachment queue zone.
 
 ### 10.6 Transaction Register — design
@@ -495,3 +566,4 @@ Every detail view honors a return stack: `Esc`/`q` returns to the exact screen, 
 | 2026-08-04 | Drill-through fix: PL/BS account rows → GL (not TB); reports hub forwards ?account= to report iframe; GL filter bar prefilled from URL |
 | 2026-08-05 | Receivables stub removed from sidebar + `g v` keybind dropped; route + page handler deleted (AR module dropped, §0m) |
 | 2026-08-18 | Bank Import page removed from spec (done through agent inbox); Opening Balances feature removed (use journal voucher instead); orphaned nav-registry entry + redirect + new-company link cleaned up |
+| 2026-11-24 | §5 replaced with a per-page key reference checked against the code; §3.1/§4/§9/§10 stale keys removed (`{`/`}`, `A`, global `~`, `o`, `d`, `q`, `R`, `c` clear filters); Enter on read-only register rows drills again |

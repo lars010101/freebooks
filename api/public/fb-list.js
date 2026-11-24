@@ -1339,6 +1339,16 @@
       var d = focusedRow();
       return !!d && (!cfg.editable || !!cfg.editable(d));
     }
+    // The focused row's drill link, if any: the row's data-href, else the
+    // first anchor in it.
+    function focusedLink() {
+      var tr = nav && nav.current();
+      if (!tr || tr.classList.contains('fb-add-row')) return null;
+      var h = tr.getAttribute('data-href');
+      if (h) return h;
+      var a = tr.querySelector('a[href]');
+      return a ? a.getAttribute('href') : null;
+    }
     // Does x delete something on the focused row? (Tree: the parent.)
     function canDeleteFocused() {
       if (!cfg.del) return false;
@@ -1449,6 +1459,11 @@
       { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, paletteEligible: false,
         when: function () { return !!cfg.openRow && !!focusedRow(); }, run: openFocused },
       { key: 'Enter', mode: 'NORMAL', hint: 'edit', hintBar: true, paletteEligible: false, when: canEditFocused, run: openFocused },
+      // A read-only row that carries a link (report registers: data-href or a
+      // doc-link anchor) opens it, so Enter drills like a click (ia-spec §10).
+      { key: 'Enter', mode: 'NORMAL', hint: 'open', hintBar: true, paletteEligible: false,
+        when: function () { return !cfg.tree && !cfg.openRow && !canEditFocused() && !!focusedLink(); },
+        run: function () { var h = focusedLink(); if (window.fbNavigate) fbNavigate(h); else window.location.href = h; } },
       { key: 'Enter', mode: 'NORMAL', hint: 'Expand/Collapse', hintBar: true, paletteEligible: false,
         when: function () { return cfg.tree && !cfg.openRow && !!focusedRow(); }, run: openFocused },
       { key: 'Enter', mode: 'NORMAL', paletteEligible: false, run: openFocused },

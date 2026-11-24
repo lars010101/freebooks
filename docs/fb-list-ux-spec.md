@@ -150,7 +150,7 @@ An `≡` button is absolutely pinned to the right corner of every filterable col
 - **Value starts with `/`** → **screen-limited filter expression**, routed to the visible FB.list (`FB.list.visible()`). So `//` starts a screen filter. Plain terms + the full qualifier grammar apply. The list re-filters live as you type.
 - **Anything else** → the **global search** (app-wide; the future scope Magnus flagged — no separate scope toggle needed, the prefix IS the scope).
 
-Mirror rules (one state, two views): ≡ dropdown edits write `/expression` into the topbar **when the user is not typing in it**; `c` clears filters AND the mirror; Esc in the topbar clears value + filters + blurs; Enter keeps the filter and blurs. Deleting the leading `/` disengages the screen filter (clears it) — the transition out of filter context is explicit user intent.
+Mirror rules (one state, two views): ≡ dropdown edits write `/expression` into the topbar **when the user is not typing in it**; NORMAL-mode Esc clears filters AND the mirror; Esc in the topbar clears value + filters + blurs; Enter keeps the filter and blurs. Deleting the leading `/` disengages the screen filter (clears it) — the transition out of filter context is explicit user intent.
 
 ### Grammar
 
@@ -165,8 +165,7 @@ Dropdown choices and the topbar expression are two renderings of the same filter
 
 ### Verbs
 
-- **`c` clears all filters** (established verb from Bank).
-- **NORMAL-mode `Esc` peels one layer, never writes:** open ≡ dropdown → close it; active filters → clear them; otherwise inert. (INSERT-mode Esc is unchanged: exits edit, dirty buffer stays — "Esc never saves" governs row data; filters are view state.)
+- **NORMAL-mode `Esc` peels one layer, never writes** (it is the only clear-filters key; `c` was retired 2026-11-24): open ≡ dropdown → close it; active filters → clear them; otherwise inert. (INSERT-mode Esc is unchanged: exits edit, dirty buffer stays — "Esc never saves" governs row data; filters are view state.)
 - **Edit/dirty rows always bypass filters:** a row in edit mode — including the freshly created add-entry row — is never hidden by the active filter. After `w` the row re-submits to the filter (and vanishes from view if it no longer matches — correct).
 - **List-level actions:** non-row-editing register actions (e.g. Fetch Rates) may be declared as list-level verbs — a key; a header button is optional (mouse parity dropped 2026-07-31, roadmap §0q; verb freeze applies — new verbs need explicit ratification). They must not edit existing rows.
 

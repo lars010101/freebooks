@@ -109,6 +109,20 @@ try {
   ok('help lists p, g w, Esc and ? with h/l as tabs',
     /Period selector/.test(h) && /Switch company/.test(h) && /Close \/ cancel/.test(h) && /This help/.test(h) && /Previous \/ next tab/.test(h));
 
+  // 5. c no longer clears filters (2026-11-24); Esc does, and help says so
+  await page.evaluate(() => { const l = FB.list.visible && FB.list.visible(); if (l && l.applyFilterExpr) l.applyFilterExpr('vendor_ref:KR-P'); });
+  await page.waitForTimeout(200);
+  const rows = () => page.locator('#bills-tbody tr[data-key]').count();
+  const filtered = await rows();
+  await page.click('#bills-tbody tr[data-key] td[data-field="date"]').catch(() => {});
+  h = await help();
+  ok('filtered list help: Esc clear filters, no c', /Esc\s*clear filters/i.test(h) && !/\bc\s*clear filters/i.test(h), h.replace(/\s+/g, ' ').slice(-300));
+  await blur();
+  await page.keyboard.press('c'); await page.waitForTimeout(200);
+  ok('c leaves the filter on', (await rows()) === filtered, `rows ${filtered} → ${await rows()}`);
+  await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+  ok('Esc clears the filter', (await rows()) > filtered, `rows ${filtered} → ${await rows()}`);
+
   // 4b. Settings → Access shows both lists
   await page.goto(`${B}/${CO}/settings`, { waitUntil: 'networkidle' });
   await page.locator('.tabs .tab', { hasText: 'Access' }).click();

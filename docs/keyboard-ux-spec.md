@@ -27,7 +27,10 @@ a viewer plus a small human correction surface. Consequences for this spec:
   draft (confirm) and voids (reverses) a posted bill with nothing paid; it
   does nothing on a new, paid, part-paid or void bill. `W` writes off the
   remaining balance of a posted, part-paid bill (same verb as the Payables
-  list; server-side threshold).*
+  list; server-side threshold). Ratified change 2026-11-24: FB.list's `c`
+  (clear filters) is retired — NORMAL-mode `Esc` already clears them. `c`
+  now only means a screen's own verb (Inbox: correct & resubmit a rejected
+  journal entry), so it no longer changes meaning with the focused row.*
 - **The `?` overlay shows what the keys do right now** (2026-11-23). It lists
   every active binding set in dispatch order, but only NORMAL bindings whose
   `when` passes in the current context, each key once under the set that
@@ -209,8 +212,8 @@ their own on/off semantics per button (re-toggle returns to neutral —
 e.g. reports comparison: `~` on active MoM → none).
 
 - **Bank transaction panel: `c` → `~` migrated 2026-07-28** (clear/unclear).
-  `c` is released; on FB.list filter surfaces `c` remains 'clear filters'
-  (different semantic, unchanged).
+  `c` is released. (FB.list's `c` clear filters was retired 2026-11-24;
+  `Esc` clears filters.)
 - Journal-voucher reversal is NOT a `~` — was `R` (2026-07-28: `~` reads as
   toggle-true/false; reversal is a mode — vim's own `R` = replace mode), then
   **retired onto `x` (2026-09-06, magnus):** `x` at rest on the header zone

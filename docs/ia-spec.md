@@ -117,7 +117,7 @@ Every flat register in the app. A screen declares columns + actions; the framewo
 
 **Leave-guard:** One shared modal per page across all mounted FB.list instances: switching tab/page or sidebar-navigating with any editing-or-dirty row opens **Save / Discard / Stay**. Save = write all dirty rows, proceed only when all succeed; Discard = undo all, proceed; Stay = abort.
 
-**Filtering:** Per-column dropdown (mouse) + topbar search input (keyboard) render the same filter state. `c` clears all filters. NORMAL-mode `Esc` peels one layer. Edit/dirty rows always bypass filters.
+**Filtering:** Per-column dropdown (mouse) + topbar search input (keyboard) render the same filter state. NORMAL-mode `Esc` peels one layer (clears all filters). Edit/dirty rows always bypass filters.
 
 **List-level verbs:** `actions: [{ key, label, handler(api) }]` — each gets a NORMAL-mode key binding + a small mouse-parity button above the table. Must not edit existing rows. Example: Inbox `f` = cycle status filter.
 
@@ -255,7 +255,7 @@ The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) wer
 - `p` — post (draft → posted); on posted/partial → inline payment row
 - `o` — new bill (master object)
 - `A` — attach (bill-level)
-- Column filters: `filterType` per column; `c` clears all; `Esc` peels
+- Column filters: `filterType` per column; `Esc` peels (clears all)
 - Sortable columns: click header cycles asc → desc → none (mouse-only, no verb)
 
 **Partners tab:**
@@ -285,7 +285,7 @@ The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) wer
 - **Danger zone:** Type the exact company name to arm `Delete company`; `Enter` in the input fires it; server refusals surface in the modal's error slot. `#cr-delete-btn` is mouse-only by ratified design (danger zone: GitHub/QBO pattern).
 
 **Posting Rules / AI tabs:**
-- Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` undo, `x` delete, `c` clear filters)
+- Standard FB.list contract (add row, `i`/`Enter` edit, `w` write, `u` undo, `x` delete, `Esc` clear filters)
 
 > **Note:** Periods, COA, Tax Codes, Journals, and Exchange Rates moved to the Master Data page (`/:company/master-data`) on 2026-08-11. Partners also moved there from Bills.
 
@@ -317,7 +317,7 @@ The Bank page and its page modules (`pages/bank.js`, `pages/bank-import.js`) wer
 - `/` focuses the topbar global search — always, on every screen.
 - Value starts with `/` → **screen-limited filter expression**, routed to the visible FB.list. So `//` starts a screen filter.
 - Anything else → the **global search** (app-wide).
-- `c` clears all filters AND the mirror.
+- NORMAL-mode `Esc` clears all filters AND the mirror.
 - `Esc` in the topbar clears value + filters + blurs.
 - `Enter` keeps the filter and blurs.
 

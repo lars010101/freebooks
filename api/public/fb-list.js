@@ -1498,9 +1498,9 @@
     if (hasFilterSurface()) {
       // Esc peels one layer at a time (never writes): open filter dropdown →
       // close it; active filters → clear them; otherwise inert (falls through).
+      // Esc is the only clear-filters key ('c' was retired 2026-11-24).
       bindings.push({ key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: function () { return !!ddEl; }, run: closeColDropdown });
-      bindings.push({ key: 'Escape', mode: 'NORMAL', paletteEligible: false, when: anyFilterActive, run: clearAllFilters });
-      bindings.push({ key: 'c', mode: 'NORMAL', hint: 'clear filters', hintBar: true, when: anyFilterActive, run: clearAllFilters });
+      bindings.push({ key: 'Escape', mode: 'NORMAL', hint: 'clear filters', hintBar: true, paletteEligible: false, when: anyFilterActive, run: clearAllFilters });
     }
     if (cfg.actions) {
       cfg.actions.forEach(function (a) {
